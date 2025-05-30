@@ -1,0 +1,10 @@
+[
+  {
+    "stock_code": "600036.SH",
+    "stock_name": "招商银行",
+    "upper_threshold": 45.5,
+    "lower_threshold": 35.8,
+    "user_email": "test@example.com",
+    "added_at": "2025-05-28 17:10:21"
+  }
+]
