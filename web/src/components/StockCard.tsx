@@ -4,10 +4,13 @@ import { Stock } from '../types/types';
 
 interface StockCardProps {
   stock: Stock;
-  onSelect: (stock: Stock) => void;
+  isSelected?: boolean;
+  onClick: (stock: Stock) => void;
+  onDelete?: (stock: Stock) => void;
+  onEdit?: (stock: Stock) => void;
 }
 
-export const StockCard: React.FC<StockCardProps> = ({ stock, onSelect }) => {
+export const StockCard: React.FC<StockCardProps> = ({ stock, isSelected, onClick, onDelete, onEdit }) => {
   const { stock_name, stock_code, current_price, upper_threshold, lower_threshold } = stock;
   
   // 格式化显示的值
@@ -22,8 +25,10 @@ export const StockCard: React.FC<StockCardProps> = ({ stock, onSelect }) => {
   
   return (
     <article 
-      className="relative px-4 py-5 mb-4 rounded-lg border border-solid bg-neutral-100 border-neutral-200 h-[167px] w-[573px] hover:shadow-md transition-shadow cursor-pointer"
-      onClick={() => onSelect(stock)}
+      className={`relative px-4 py-5 mb-4 rounded-lg border border-solid bg-neutral-100 border-neutral-200 h-[167px] w-[573px] hover:shadow-md transition-shadow cursor-pointer ${
+        isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''
+      }`}
+      onClick={() => onClick(stock)}
     >
       <div className="absolute left-[17px] top-[19px]">
         <h3 className="mb-2 text-lg font-semibold leading-7 text-black">{stock_name}</h3>
@@ -45,15 +50,41 @@ export const StockCard: React.FC<StockCardProps> = ({ stock, onSelect }) => {
           <span>| 下限: {formattedLowerThreshold}</span>
         </p>
       </div>
-      <button 
-        className="absolute text-sm font-medium leading-5 text-white bg-black rounded-md cursor-pointer bottom-[17px] h-[37px] right-[17px] w-[101px]"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSelect(stock);
-        }}
-      >
-        查看AI分析
-      </button>
+      <div className="absolute flex gap-2 bottom-[17px] right-[17px]">
+        {onDelete && (
+          <button 
+            className="text-sm font-medium leading-5 text-white bg-red-500 hover:bg-red-600 rounded-md cursor-pointer h-[37px] px-3 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(stock);
+            }}
+            title="删除股票"
+          >
+            删除
+          </button>
+        )}
+        {onEdit && (
+          <button 
+            className="text-sm font-medium leading-5 text-white bg-green-500 hover:bg-green-600 rounded-md cursor-pointer h-[37px] px-3 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(stock);
+            }}
+            title="编辑阈值"
+          >
+            编辑
+          </button>
+        )}
+        <button 
+          className="text-sm font-medium leading-5 text-white bg-black hover:bg-gray-800 rounded-md cursor-pointer h-[37px] w-[85px] transition-colors"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick(stock);
+          }}
+        >
+          AI分析
+        </button>
+      </div>
     </article>
   );
 }; 

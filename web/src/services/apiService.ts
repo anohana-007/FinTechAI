@@ -1,75 +1,295 @@
-import { Stock, NewStockData, AlertInfo } from '../types/types';
+import { 
+  Stock, 
+  NewStockData, 
+  AlertInfo, 
+  StockSearchResult, 
+  StockSearchResponse, 
+  AlertLogEntry, 
+  AlertLogResponse, 
+  PaginationParams,
+  LoginRequest,
+  RegisterRequest,
+  AuthResponse,
+  SessionResponse,
+  UserSettingsData,
+  UserSettingsResponse,
+  ChangePasswordRequest
+} from '../types/types';
 
 const API_BASE_URL = 'http://127.0.0.1:5000';
 
-/**
- * 获取关注列表
- * @returns 股票列表 Promise
- */
+const makeRequest = async (url: string, options: RequestInit = {}): Promise<Response> => {
+  const defaultOptions: RequestInit = {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
+  };
+  return fetch(url, defaultOptions);
+};
+
 export const fetchWatchlist = async (): Promise<Stock[]> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/watchlist`);
-    
+    const response = await makeRequest(`${API_BASE_URL}/api/watchlist`);
     if (!response.ok) {
-      throw new Error(`获取关注列表失败: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to fetch watchlist: ${response.status} ${response.statusText}`);
     }
-    
     const data = await response.json();
     return data as Stock[];
   } catch (error) {
-    console.error('获取关注列表出错:', error);
+    console.error('Error fetching watchlist:', error);
     throw error;
   }
 };
 
-/**
- * 添加股票到关注列表
- * @param stockData 股票数据
- * @returns 添加结果 Promise
- */
 export const addStock = async (stockData: NewStockData): Promise<any> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/add_stock`, {
+    const response = await makeRequest(`${API_BASE_URL}/api/add_stock`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify(stockData),
     });
-    
     if (!response.ok) {
-      throw new Error(`添加股票失败: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to add stock: ${response.status} ${response.statusText}`);
     }
-    
     return await response.json();
   } catch (error) {
-    console.error('添加股票出错:', error);
+    console.error('Error adding stock:', error);
     throw error;
   }
 };
 
-/**
- * 检查告警状态
- * @returns 告警信息 Promise，如无告警则返回null
- */
+export const removeStock = async (stockCode: string, userEmail: string): Promise<any> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/remove_stock`, {
+      method: 'DELETE',
+      body: JSON.stringify({
+        stock_code: stockCode,
+        user_email: userEmail,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to remove stock: ${response.status} ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error removing stock:', error);
+    throw error;
+  }
+};
+
+export const updateStock = async (
+  stockCode: string, 
+  userEmail: string, 
+  upperThreshold: number, 
+  lowerThreshold: number
+): Promise<any> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/update_stock`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        stock_code: stockCode,
+        user_email: userEmail,
+        upper_threshold: upperThreshold,
+        lower_threshold: lowerThreshold,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to update stock: ${response.status} ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error updating stock:', error);
+    throw error;
+  }
+};
+
 export const checkAlertsStatus = async (): Promise<AlertInfo | null> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/check_alerts_status`);
-    
+    const response = await makeRequest(`${API_BASE_URL}/api/check_alerts_status`);
     if (!response.ok) {
-      throw new Error(`检查告警状态失败: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to check alerts: ${response.status} ${response.statusText}`);
     }
-    
     const data = await response.json();
-    
-    // 如果没有告警，后端可能返回空对象或特定标识
     if (!data || Object.keys(data).length === 0) {
       return null;
     }
-    
     return data as AlertInfo;
   } catch (error) {
-    console.error('检查告警状态出错:', error);
+    console.error('Error checking alerts:', error);
     throw error;
   }
-}; 
+};
+
+export const searchStocks = async (term: string, limit: number = 20): Promise<StockSearchResult[]> => {
+  try {
+    if (!term.trim()) {
+      return [];
+    }
+    const params = new URLSearchParams({
+      query: term.trim(),
+      limit: limit.toString(),
+    });
+    const response = await makeRequest(`${API_BASE_URL}/api/stock_search?${params}`);
+    if (!response.ok) {
+      throw new Error(`Stock search failed: ${response.status} ${response.statusText}`);
+    }
+    const data: StockSearchResponse = await response.json();
+    return data.results;
+  } catch (error) {
+    console.error('Error searching stocks:', error);
+    throw error;
+  }
+};
+
+export const fetchAlertLog = async (params: PaginationParams = {}): Promise<AlertLogResponse> => {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.page_size) queryParams.append('page_size', params.page_size.toString());
+    if (params.user_email) queryParams.append('user_email', params.user_email);
+    if (params.stock_code) queryParams.append('stock_code', params.stock_code);
+    if (params.start_date) queryParams.append('start_date', params.start_date);
+    if (params.end_date) queryParams.append('end_date', params.end_date);
+
+    const response = await makeRequest(`${API_BASE_URL}/api/alert_log?${queryParams}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch alert log: ${response.status} ${response.statusText}`);
+    }
+    const data: AlertLogResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching alert log:', error);
+    throw error;
+  }
+};
+
+export const fetchStockPrice = async (stockCode: string): Promise<{ code: string; price: number }> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/stock_price/${stockCode}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch stock price: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching stock price:', error);
+    throw error;
+  }
+};
+
+export const login = async (credentials: LoginRequest): Promise<AuthResponse> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Login failed: ${response.status}`);
+    }
+    const data: AuthResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Login error:', error);
+    throw error;
+  }
+};
+
+export const register = async (userData: RegisterRequest): Promise<AuthResponse> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      body: JSON.stringify(userData),
+    });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Registration failed: ${response.status}`);
+    }
+    const data: AuthResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Registration error:', error);
+    throw error;
+  }
+};
+
+export const logout = async (): Promise<void> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/auth/logout`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      throw new Error(`Logout failed: ${response.status} ${response.statusText}`);
+    }
+  } catch (error) {
+    console.error('Logout error:', error);
+    throw error;
+  }
+};
+
+export const checkSession = async (): Promise<SessionResponse> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/auth/check_session`);
+    if (!response.ok) {
+      throw new Error(`Session check failed: ${response.status} ${response.statusText}`);
+    }
+    const data: SessionResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Session check error:', error);
+    throw error;
+  }
+};
+
+export const fetchUserSettings = async (): Promise<UserSettingsResponse> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/user/settings`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Failed to fetch user settings: ${response.status}`);
+    }
+    const data: UserSettingsResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching user settings:', error);
+    throw error;
+  }
+};
+
+export const updateUserSettings = async (settings: UserSettingsData): Promise<AuthResponse> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/user/settings`, {
+      method: 'POST',
+      body: JSON.stringify(settings),
+    });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Failed to update user settings: ${response.status}`);
+    }
+    const data: AuthResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error updating user settings:', error);
+    throw error;
+  }
+};
+
+export const changePassword = async (passwordData: ChangePasswordRequest): Promise<AuthResponse> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/user/password`, {
+      method: 'PUT',
+      body: JSON.stringify(passwordData),
+    });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Failed to change password: ${response.status}`);
+    }
+    const data: AuthResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error changing password:', error);
+    throw error;
+  }
+};

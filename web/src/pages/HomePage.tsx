@@ -58,7 +58,7 @@ const HomePage: React.FC = () => {
               <StockCard
                 key={stock.id}
                 stock={stock}
-                onSelect={handleSelectStock}
+                onClick={handleSelectStock}
               />
             ))}
           </div>

@@ -2,17 +2,18 @@ import React, { useState } from 'react';
 import { NewStockData } from '../types/types';
 
 interface AddStockFormProps {
-  onAddStock: (stockData: NewStockData) => Promise<void>;
-  onClose: () => void;
+  onSubmit: (stockData: NewStockData) => Promise<void>;
+  onCancel: () => void;
+  userEmail: string;
 }
 
-export const AddStockForm: React.FC<AddStockFormProps> = ({ onAddStock, onClose }) => {
+export const AddStockForm: React.FC<AddStockFormProps> = ({ onSubmit, onCancel, userEmail }) => {
   const [formData, setFormData] = useState<NewStockData>({
     stock_code: '',
     stock_name: '',
     upper_threshold: 0,
     lower_threshold: 0,
-    user_email: ''
+    user_email: userEmail
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,8 +45,8 @@ export const AddStockForm: React.FC<AddStockFormProps> = ({ onAddStock, onClose 
 
     try {
       setIsSubmitting(true);
-      await onAddStock(formData);
-      onClose(); // 成功后关闭表单
+      await onSubmit(formData);
+      onCancel(); // 成功后关闭表单
     } catch (err) {
       setError(err instanceof Error ? err.message : '添加股票失败，请重试');
     } finally {
@@ -59,7 +60,7 @@ export const AddStockForm: React.FC<AddStockFormProps> = ({ onAddStock, onClose 
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold">添加股票</h2>
           <button 
-            onClick={onClose}
+            onClick={onCancel}
             className="text-gray-500 hover:text-gray-700"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -142,13 +143,14 @@ export const AddStockForm: React.FC<AddStockFormProps> = ({ onAddStock, onClose 
               className="w-full border border-gray-300 rounded px-3 py-2"
               placeholder="例如: user@example.com"
               required
+              disabled
             />
           </div>
 
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={onClose}
+              onClick={onCancel}
               className="mr-2 px-4 py-2 border border-gray-300 rounded"
             >
               取消

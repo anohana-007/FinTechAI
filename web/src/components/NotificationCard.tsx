@@ -3,10 +3,10 @@ import { AlertInfo } from '../types/types';
 
 interface NotificationCardProps {
   onClose: () => void;
-  alertInfo?: AlertInfo;
+  alert?: AlertInfo;
 }
 
-export const NotificationCard: React.FC<NotificationCardProps> = ({ onClose, alertInfo }) => {
+export const NotificationCard: React.FC<NotificationCardProps> = ({ onClose, alert: alertInfo }) => {
   // 如果没有传入告警信息，则使用默认值
   const defaultAlert = {
     id: 1,

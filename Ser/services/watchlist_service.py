@@ -118,4 +118,88 @@ def validate_stock_data(data):
     if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', data['user_email']):
         return False
     
-    return True 
+    return True
+
+def remove_stock(stock_code, user_email):
+    """
+    从关注列表中删除股票
+    
+    参数:
+    stock_code (str): 股票代码
+    user_email (str): 用户邮箱
+    
+    返回:
+    tuple: (成功标志, 消息)
+    """
+    # 验证输入
+    if not stock_code or not user_email:
+        return False, "股票代码和用户邮箱不能为空"
+    
+    # 读取现有列表
+    watchlist = get_watchlist()
+    
+    # 查找要删除的股票
+    original_length = len(watchlist)
+    watchlist = [stock for stock in watchlist if not (stock['stock_code'] == stock_code and stock['user_email'] == user_email)]
+    
+    # 检查是否找到并删除了股票
+    if len(watchlist) == original_length:
+        return False, "未找到指定的股票"
+    
+    # 保存更新后的列表
+    if save_watchlist(watchlist):
+        return True, "股票删除成功"
+    else:
+        return False, "保存失败，请稍后重试"
+
+def update_stock_thresholds(stock_code, user_email, upper_threshold, lower_threshold):
+    """
+    更新股票的阈值设置
+    
+    参数:
+    stock_code (str): 股票代码
+    user_email (str): 用户邮箱
+    upper_threshold (float): 新的上限阈值
+    lower_threshold (float): 新的下限阈值
+    
+    返回:
+    tuple: (成功标志, 消息)
+    """
+    # 验证输入
+    if not stock_code or not user_email:
+        return False, "股票代码和用户邮箱不能为空"
+    
+    # 验证阈值是数字
+    try:
+        upper_threshold = float(upper_threshold)
+        lower_threshold = float(lower_threshold)
+    except (ValueError, TypeError):
+        return False, "阈值必须是有效的数字"
+    
+    # 验证下限小于上限
+    if lower_threshold >= upper_threshold:
+        return False, "下限阈值必须小于上限阈值"
+    
+    # 读取现有列表
+    watchlist = get_watchlist()
+    
+    # 查找要更新的股票
+    stock_found = False
+    for stock in watchlist:
+        if stock['stock_code'] == stock_code and stock['user_email'] == user_email:
+            # 更新阈值
+            stock['upper_threshold'] = upper_threshold
+            stock['lower_threshold'] = lower_threshold
+            stock['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            stock_found = True
+            break
+    
+    # 检查是否找到股票
+    if not stock_found:
+        return False, "未找到指定的股票"
+    
+    # 保存更新后的列表
+    if save_watchlist(watchlist):
+        return True, "阈值更新成功"
+    else:
+        return False, "保存失败，请稍后重试" 

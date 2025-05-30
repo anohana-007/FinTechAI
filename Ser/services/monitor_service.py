@@ -7,6 +7,7 @@ from .watchlist_service import get_watchlist
 from .email_service import send_email_alert, format_stock_alert_email
 from .ai_analysis_service import get_basic_ai_analysis
 from .alert_manager import is_new_alert, get_recent_alerts
+from .database_service import save_alert_log, init_database
 
 # 配置日志
 logging.basicConfig(
@@ -89,6 +90,22 @@ def check_thresholds():
                         logger.error(f"获取AI分析时出错: {e}")
                         alert['ai_analysis'] = "AI分析暂不可用"
                 
+                # 保存到数据库
+                try:
+                    alert_data = {
+                        'stock_code': stock_code,
+                        'stock_name': stock_name,
+                        'triggered_price': current_price,
+                        'threshold_price': upper_threshold,
+                        'direction': 'UP',
+                        'ai_analysis': alert.get('ai_analysis', ''),
+                        'user_email': user_email,
+                        'alert_timestamp': datetime.now()
+                    }
+                    save_alert_log(alert_data)
+                except Exception as e:
+                    logger.error(f"保存告警日志到数据库失败: {e}")
+                
                 # 添加到警报列表
                 alerts.append(alert)
                 
@@ -121,6 +138,22 @@ def check_thresholds():
                     except Exception as e:
                         logger.error(f"获取AI分析时出错: {e}")
                         alert['ai_analysis'] = "AI分析暂不可用"
+                
+                # 保存到数据库
+                try:
+                    alert_data = {
+                        'stock_code': stock_code,
+                        'stock_name': stock_name,
+                        'triggered_price': current_price,
+                        'threshold_price': lower_threshold,
+                        'direction': 'DOWN',
+                        'ai_analysis': alert.get('ai_analysis', ''),
+                        'user_email': user_email,
+                        'alert_timestamp': datetime.now()
+                    }
+                    save_alert_log(alert_data)
+                except Exception as e:
+                    logger.error(f"保存告警日志到数据库失败: {e}")
                 
                 # 添加到警报列表
                 alerts.append(alert)

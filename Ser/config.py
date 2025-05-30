@@ -4,6 +4,10 @@ from dotenv import load_dotenv
 # 加载.env文件中的环境变量
 load_dotenv()
 
+# Flask应用配置
+SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
+ENCRYPTION_MASTER_KEY = os.getenv('ENCRYPTION_MASTER_KEY', 'default-master-key-change-in-production')
+
 # Tushare API配置
 TUSHARE_TOKEN = os.getenv('TUSHARE_TOKEN', '')
 
