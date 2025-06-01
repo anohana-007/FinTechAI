@@ -16,7 +16,7 @@ import {
   ChangePasswordRequest
 } from '../types/types';
 
-const API_BASE_URL = 'http://127.0.0.1:5000';
+const API_BASE_URL = 'http://localhost:5000';
 
 const makeRequest = async (url: string, options: RequestInit = {}): Promise<Response> => {
   const defaultOptions: RequestInit = {
@@ -181,15 +181,20 @@ export const fetchStockPrice = async (stockCode: string): Promise<{ code: string
 
 export const login = async (credentials: LoginRequest): Promise<AuthResponse> => {
   try {
+    console.log('发送登录请求到:', `${API_BASE_URL}/auth/login`);
+    
     const response = await makeRequest(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       body: JSON.stringify(credentials),
     });
+    
     if (!response.ok) {
       const errorData = await response.json();
+      console.log('登录失败，错误信息:', errorData);
       throw new Error(errorData.error || `Login failed: ${response.status}`);
     }
     const data: AuthResponse = await response.json();
+    console.log('登录成功');
     return data;
   } catch (error) {
     console.error('Login error:', error);
@@ -231,15 +236,26 @@ export const logout = async (): Promise<void> => {
 
 export const checkSession = async (): Promise<SessionResponse> => {
   try {
+    console.log('checkSession: 开始检查会话状态');
     const response = await makeRequest(`${API_BASE_URL}/auth/check_session`);
+    console.log('checkSession: 收到响应，状态码:', response.status);
+    console.log('checkSession: 响应头:', Object.fromEntries(response.headers.entries()));
+    
     if (!response.ok) {
+      console.log('checkSession: 响应不正常，状态码:', response.status);
+      // 如果是401，表示未认证，这是正常情况
+      if (response.status === 401) {
+        return { authenticated: false };
+      }
       throw new Error(`Session check failed: ${response.status} ${response.statusText}`);
     }
     const data: SessionResponse = await response.json();
+    console.log('checkSession: 成功获取会话数据:', data);
     return data;
   } catch (error) {
-    console.error('Session check error:', error);
-    throw error;
+    console.error('checkSession: 检查会话时发生错误:', error);
+    // 网络错误时，返回未认证状态而不是抛出错误
+    return { authenticated: false };
   }
 };
 

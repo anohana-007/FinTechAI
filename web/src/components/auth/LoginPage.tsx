@@ -12,7 +12,7 @@ const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
 
-  const { login: loginUser } = useAuth();
+  const { login: loginUser, checkAuthStatus } = useAuth();
   const navigate = useNavigate();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -30,6 +30,8 @@ const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    console.log('登录表单提交开始');
+    
     if (!formData.username.trim() || !formData.password.trim()) {
       setError('请填写用户名和密码');
       return;
@@ -42,12 +44,18 @@ const LoginPage: React.FC = () => {
       const response = await login(formData);
       
       if (response.user) {
+        console.log('登录成功，用户信息：', response.user);
+        // 先设置本地状态
         loginUser(response.user);
+        // 登录成功后不需要重新检查，避免状态被重置
+        // await checkAuthStatus();
         navigate('/dashboard');
       } else {
+        console.log('登录响应中没有用户信息');
         setError('登录失败，请重试');
       }
     } catch (error) {
+      console.error('登录过程中发生错误:', error);
       setError(error instanceof Error ? error.message : '登录失败，请重试');
     } finally {
       setLoading(false);
@@ -117,6 +125,10 @@ const LoginPage: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
+              onClick={(e) => {
+                console.log('登录按钮被点击');
+                // 不要在这里preventDefault，让表单的onSubmit处理
+              }}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               {loading ? (

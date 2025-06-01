@@ -88,12 +88,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // 检查认证状态
   const checkAuthStatus = async () => {
+    console.log('AuthContext: 开始检查认证状态 - 页面刷新或初始加载');
     dispatch({ type: 'SET_LOADING', payload: true });
     
     try {
+      console.log('AuthContext: 调用checkSession API');
       const sessionData = await checkSession();
+      console.log('AuthContext: checkSession API响应:', sessionData);
       
       if (sessionData.authenticated && sessionData.user) {
+        console.log('AuthContext: 会话有效，用户已认证:', sessionData.user);
         dispatch({ 
           type: 'SET_AUTHENTICATED', 
           payload: { 
@@ -102,6 +106,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           } 
         });
       } else {
+        console.log('AuthContext: 会话无效或用户未认证');
         dispatch({ 
           type: 'SET_AUTHENTICATED', 
           payload: { 
@@ -111,7 +116,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         });
       }
     } catch (error) {
-      console.error('检查认证状态时出错:', error);
+      console.error('AuthContext: 检查认证状态时发生错误:', error);
+      // checkSession现在不会抛出错误，但为了安全起见保留错误处理
       dispatch({ 
         type: 'SET_AUTHENTICATED', 
         payload: { 

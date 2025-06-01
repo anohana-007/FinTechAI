@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   fetchUserSettings, 
@@ -8,6 +9,7 @@ import {
 import { UserSettingsData, ChangePasswordRequest } from '../types/types';
 
 const UserSettingsPage: React.FC = () => {
+  const navigate = useNavigate();
   const { state } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -229,10 +231,35 @@ const UserSettingsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
+        {/* 导航区域 */}
+        <div className="mb-6">
+          <nav className="flex items-center space-x-2 text-sm text-gray-500 mb-4">
+            <button
+              onClick={() => navigate('/')}
+              className="hover:text-gray-700 transition-colors"
+            >
+              首页
+            </button>
+            <span>/</span>
+            <span className="text-gray-900">用户设置</span>
+          </nav>
+          
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold text-gray-900">用户设置</h1>
+            <button
+              onClick={() => navigate('/')}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+            >
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              返回主页
+            </button>
+          </div>
+        </div>
+
         <div className="bg-white shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-6">用户设置</h2>
-            
             {/* 用户信息显示 */}
             <div className="mb-6 p-4 bg-gray-50 rounded-md">
               <h3 className="text-sm font-medium text-gray-700 mb-2">当前用户</h3>

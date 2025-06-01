@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from functools import wraps
+from datetime import datetime, timedelta
 from services.stock_service import get_stock_price, search_stocks
 from services.watchlist_service import get_watchlist, add_stock, remove_stock, update_stock_thresholds
 from services.monitor_service import check_thresholds, format_alert_message, check_and_get_alerts
@@ -17,7 +18,6 @@ from services.auth_service import (
     update_user_config, change_password
 )
 import config
-from datetime import datetime
 
 # 加载环境变量
 load_dotenv()
@@ -34,7 +34,17 @@ except Exception as e:
 app = Flask(__name__)
 
 # 配置Flask会话
-app.secret_key = config.SECRET_KEY
+# app.secret_key = config.SECRET_KEY
+app.secret_key = 'fintech-ai-secret-key-2024-very-secure-and-long-for-testing'  # 临时硬编码用于测试
+# 设置session过期时间为7天
+app.permanent_session_lifetime = timedelta(days=7)
+# 配置session cookie的属性
+app.config.update(
+    SESSION_COOKIE_SECURE=False,  # 开发环境设为False，生产环境应该设为True
+    SESSION_COOKIE_HTTPONLY=True,  # 恢复为True以提高安全性
+    SESSION_COOKIE_SAMESITE='Lax',  # 恢复为Lax，同域情况下更安全
+    SESSION_COOKIE_DOMAIN=None,  # 不设置域，允许localhost工作
+)
 
 # 配置CORS，允许前端跨域请求
 CORS(app, resources={
@@ -139,14 +149,25 @@ def login():
             session['username'] = user_info['username']
             session.permanent = True  # 使会话持久化
             
-            return jsonify({
+            app.logger.info(f"登录成功，设置会话 - user_id: {user_info['id']}, username: {user_info['username']}")
+            app.logger.info(f"会话设置后的内容: {dict(session)}")
+            app.logger.info(f"会话是否为permanent: {session.permanent}")
+            app.logger.info(f"session.sid: {getattr(session, 'sid', 'No SID')}")
+            
+            # 创建响应并手动设置cookie以确保它被正确设置
+            response = jsonify({
                 "message": "登录成功",
                 "user": {
                     "id": user_info['id'],
                     "username": user_info['username'],
                     "email": user_info['email']
                 }
-            }), 200
+            })
+            
+            # 记录响应cookies
+            app.logger.info("准备返回登录响应")
+            
+            return response, 200
         else:
             return jsonify({"error": "用户名或密码错误"}), 401
             
@@ -163,13 +184,26 @@ def logout():
 @app.route('/auth/check_session', methods=['GET'])
 def check_session():
     """检查会话状态"""
+    app.logger.info(f"收到check_session请求")
+    app.logger.info(f"请求headers: {dict(request.headers)}")
+    app.logger.info(f"请求cookies: {dict(request.cookies)}")
+    app.logger.info(f"当前session内容: {dict(session)}")
+    app.logger.info(f"session.sid: {getattr(session, 'sid', 'No SID')}")
+    app.logger.info(f"会话中是否包含user_id: {'user_id' in session}")
+    
     if 'user_id' in session:
+        app.logger.info(f"从会话中获取user_id: {session.get('user_id')}")
         user_info = get_current_user()
         if user_info:
+            app.logger.info(f"成功获取用户信息: {user_info}")
             return jsonify({
                 "authenticated": True,
                 "user": user_info
             }), 200
+        else:
+            app.logger.warning("会话中有user_id但无法获取用户信息")
+    else:
+        app.logger.info("会话中没有user_id，用户未认证")
     
     return jsonify({"authenticated": False}), 200
 
@@ -182,6 +216,24 @@ def get_user():
         return jsonify({"user": user_info}), 200
     else:
         return jsonify({"error": "用户不存在"}), 404
+
+@app.route('/auth/session_info', methods=['GET'])
+def session_info():
+    """显示会话配置信息（仅用于调试）"""
+    info = {
+        'session_config': {
+            'SECRET_KEY_LENGTH': len(app.secret_key),
+            'SESSION_COOKIE_SECURE': app.config.get('SESSION_COOKIE_SECURE'),
+            'SESSION_COOKIE_HTTPONLY': app.config.get('SESSION_COOKIE_HTTPONLY'),
+            'SESSION_COOKIE_SAMESITE': app.config.get('SESSION_COOKIE_SAMESITE'),
+            'SESSION_COOKIE_DOMAIN': app.config.get('SESSION_COOKIE_DOMAIN'),
+            'PERMANENT_SESSION_LIFETIME': str(app.permanent_session_lifetime),
+        },
+        'current_session': dict(session),
+        'session_permanent': session.permanent,
+        'request_cookies': dict(request.cookies)
+    }
+    return jsonify(info), 200
 
 # ========== 用户设置API ==========
 
@@ -409,17 +461,22 @@ def check_alerts_status():
     # 格式化响应数据
     formatted_alerts = []
     for alert in alerts:
-        # 确保字段名称一致
-        current_price = alert.get('current_price', alert.get('price'))
+        # 确保字段名称一致 - 兼容不同的字段名
+        current_price = alert.get('current_price') or alert.get('price') or alert.get('triggered_price')
+        threshold = alert.get('threshold') or alert.get('threshold_price')
         
         formatted_alert = {
             'stock_code': alert['stock_code'],
             'stock_name': alert.get('stock_name', '未知股票'),
             'current_price': current_price,
-            'threshold': alert.get('threshold'),
+            'threshold': threshold,
             'direction': alert['direction'],
             'timestamp': alert.get('timestamp'),
-            'message': format_alert_message(alert),
+            'message': format_alert_message({
+                **alert,
+                'current_price': current_price,
+                'threshold': threshold
+            }),
             'ai_analysis': alert.get('ai_analysis', '')
         }
         formatted_alerts.append(formatted_alert)
@@ -560,5 +617,5 @@ if __name__ == '__main__':
     # 启动定时任务
     start_scheduler()
     
-    # 启动Flask应用
-    app.run(debug=True, port=5000) 
+    # 启动Flask应用 - 使用localhost而不是127.0.0.1以匹配前端域名
+    app.run(debug=True, host='localhost', port=5000) 
