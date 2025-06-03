@@ -131,18 +131,19 @@ export const checkAlertsStatus = async (): Promise<AlertsStatusResponse> => {
   }
 };
 
-export const searchStocks = async (term: string, limit: number = 20): Promise<StockSearchResult[]> => {
+export const searchStocksAPI = async (searchTerm: string, limit: number = 20): Promise<StockSearchResult[]> => {
   try {
-    if (!term.trim()) {
+    if (!searchTerm.trim()) {
       return [];
     }
     const params = new URLSearchParams({
-      query: term.trim(),
+      query: searchTerm.trim(),
       limit: limit.toString(),
     });
     const response = await makeRequest(`${API_BASE_URL}/api/stock_search?${params}`);
     if (!response.ok) {
-      throw new Error(`Stock search failed: ${response.status} ${response.statusText}`);
+      const errorData = await response.json();
+      throw new Error(errorData.error || errorData.message || `Stock search failed: ${response.status}`);
     }
     const data: StockSearchResponse = await response.json();
     return data.results;
@@ -151,6 +152,9 @@ export const searchStocks = async (term: string, limit: number = 20): Promise<St
     throw error;
   }
 };
+
+// 保持向后兼容性的别名
+export const searchStocks = searchStocksAPI;
 
 export const fetchAlertLog = async (params: PaginationParams = {}): Promise<AlertLogResponse> => {
   try {

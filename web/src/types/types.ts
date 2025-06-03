@@ -64,14 +64,17 @@ export interface AlertInfo {
 // 第二阶段新增类型定义
 
 export interface StockSearchResult {
-  code: string;
-  name: string;
+  stock_code: string;
+  stock_name: string;
+  market?: string; // 市场信息，如'SH'或'SZ'
+  match_type?: 'code' | 'name'; // 匹配类型：代码匹配或名称匹配
 }
 
 export interface StockSearchResponse {
   query: string;
   count: number;
   results: StockSearchResult[];
+  message?: string; // 后端返回的消息
 }
 
 export interface AlertLogEntry {

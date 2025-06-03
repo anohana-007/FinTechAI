@@ -9,7 +9,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from functools import wraps
 from datetime import datetime, timedelta
-from services.stock_service import get_stock_price, search_stocks, validate_tushare_token
+from services.stock_service import get_stock_price, search_stocks, search_stocks_by_keyword, validate_tushare_token
 from services.watchlist_service import get_watchlist, add_stock, remove_stock, update_stock_thresholds
 from services.monitor_service import check_thresholds, format_alert_message, check_and_get_alerts
 from services.alert_manager import reset_alert
@@ -376,29 +376,86 @@ def stock_price(stock_code):
     })
 
 @app.route('/api/stock_search')
+@login_required
 def stock_search():
     """搜索股票代码和名称"""
     query = request.args.get('query', '').strip()
     limit = int(request.args.get('limit', 20))
     
+    app.logger.info(f"=== 股票搜索API调用 ===")
+    app.logger.info(f"搜索关键词: {query}")
+    app.logger.info(f"结果限制: {limit}")
+    
     if not query:
+        app.logger.warning("搜索关键词为空")
         return jsonify({"error": "搜索关键词不能为空"}), 400
     
     if limit > 50:  # 限制最大返回数量
         limit = 50
     
     try:
-        # 如果用户已登录，使用用户的配置，否则使用全局配置
+        # 获取当前用户配置
         user_config = get_current_user_config()
-        results = search_stocks(query, limit, user_config)
+        if not user_config:
+            app.logger.error("无法获取用户配置")
+            return jsonify({"error": "无法获取用户配置，请重新登录"}), 401
+        
+        app.logger.info(f"用户配置获取成功，Tushare Token: {'已配置' if user_config.get('tushare_token') else '未配置'}")
+        
+        # 调用股票搜索服务
+        tushare_token = user_config.get('tushare_token', '') # 传递空字符串如果未配置
+        app.logger.info(f"调用股票搜索服务，关键词: '{query}', 限制: {limit}, Token提供情况: {'有' if tushare_token else '无'}")
+        search_result = search_stocks_by_keyword(tushare_token, query, limit)
+        
+        app.logger.info(f"搜索服务返回: success={search_result['success']}, 结果数量={len(search_result.get('data', []))}, error_code={search_result.get('error')}")
+        
+        if not search_result['success']:
+            error_code = search_result.get('error')
+            error_message = search_result.get('message', '搜索股票时发生未知错误')
+            app.logger.warning(f"搜索失败: {error_code} - {error_message}")
+            
+            status_code = 500 # 默认服务器错误
+            if error_code == 'KEYWORD_EMPTY':
+                status_code = 400
+            elif error_code == 'TUSHARE_TOKEN_MISSING_FOR_OTHER_FEATURES':
+                status_code = 400 # 客户端错误，因为Token是预期的（即使不是直接用于搜索）
+            elif error_code == 'TUSHARE_TOKEN_INVALID_FOR_OTHER_FEATURES':
+                status_code = 400 # Token提供但无效
+            elif error_code == 'AKSHARE_SEARCH_ERROR' or error_code == 'AKSHARE_SEARCH_FAILED':
+                status_code = 503 # 服务不可用（外部API问题）
+            elif error_code == 'API_RATE_LIMIT': # 保留对旧Tushare错误码的兼容性（如果服务层仍可能返回）
+                status_code = 429
+            elif error_code == 'NETWORK_ERROR': # 保留
+                status_code = 503
+            elif error_code == 'TUSHARE_TOKEN_INVALID': # 保留旧的Tushare特定token无效错误
+                 status_code = 400
+
+            return jsonify({
+                "error": error_message, # 使用服务层返回的message
+                "code": error_code,
+                "message": error_message # 为前端提供统一的 message 字段
+            }), status_code
+        
+        # 格式化返回结果 (确保字段名与前端期望一致: stock_code, stock_name, match_type)
+        # stock_service.search_stocks_akshare 应该已经返回了正确的字段名
+        formatted_results = search_result['data'] # 直接使用服务层已格式化的数据
+        
+        app.logger.info(f"格式化结果完成，返回 {len(formatted_results)} 个结果")
+        app.logger.info("=== 股票搜索API成功结束 ===")
+        
         return jsonify({
             "query": query,
-            "count": len(results),
-            "results": [{"code": r["code"], "name": r["name"]} for r in results]
+            "count": len(formatted_results),
+            "results": formatted_results,
+            "message": search_result['message']
         })
+        
     except Exception as e:
         app.logger.error(f"股票搜索出错: {e}")
-        return jsonify({"error": "股票搜索失败"}), 500
+        return jsonify({
+            "error": "股票搜索失败",
+            "message": "服务暂时不可用，请稍后重试"
+        }), 500
 
 @app.route('/api/watchlist', methods=['GET'])
 @login_required

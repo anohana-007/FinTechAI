@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StockSearchResult, NewStockData } from '../types/types';
-import { searchStocks, addStock } from '../services/apiService';
+import { searchStocksAPI, addStock } from '../services/apiService';
 
 interface StockSearchProps {
   onStockAdded?: () => void;
@@ -18,6 +18,7 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockAdded, userEmail }) =>
   const [upperThreshold, setUpperThreshold] = useState('');
   const [lowerThreshold, setLowerThreshold] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,6 +30,7 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockAdded, userEmail }) =>
       } else {
         setSearchResults([]);
         setIsDropdownOpen(false);
+        setError(null);
       }
     }, 300);
 
@@ -51,13 +53,15 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockAdded, userEmail }) =>
     if (!searchTerm.trim()) return;
 
     setIsSearching(true);
+    setError(null);
     try {
-      const results = await searchStocks(searchTerm, 10);
+      const results = await searchStocksAPI(searchTerm, 10);
       setSearchResults(results);
       setIsDropdownOpen(results.length > 0);
       setSelectedIndex(-1);
-    } catch (error) {
+    } catch (error: any) {
       console.error('搜索失败:', error);
+      setError(error.message || '搜索失败，请重试');
       setSearchResults([]);
       setIsDropdownOpen(false);
     } finally {
@@ -95,7 +99,7 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockAdded, userEmail }) =>
 
   const handleSelectStock = (stock: StockSearchResult) => {
     setSelectedStock(stock);
-    setSearchTerm(`${stock.name} (${stock.code})`);
+    setSearchTerm(`${stock.stock_name} (${stock.stock_code})`);
     setIsDropdownOpen(false);
     setShowAddForm(true);
     setUpperThreshold('');
@@ -124,8 +128,8 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockAdded, userEmail }) =>
     setIsAdding(true);
     try {
       const stockData: NewStockData = {
-        stock_code: selectedStock.code,
-        stock_name: selectedStock.name,
+        stock_code: selectedStock.stock_code,
+        stock_name: selectedStock.stock_name,
         upper_threshold: upper,
         lower_threshold: lower,
         user_email: userEmail,
@@ -145,10 +149,10 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockAdded, userEmail }) =>
         onStockAdded();
       }
 
-      alert(`成功添加 ${selectedStock.name} 到关注列表`);
-    } catch (error) {
+      alert(`成功添加 ${selectedStock.stock_name} 到关注列表`);
+    } catch (error: any) {
       console.error('添加股票失败:', error);
-      alert('添加股票失败，请重试');
+      alert(error.message || '添加股票失败，请重试');
     } finally {
       setIsAdding(false);
     }
@@ -189,20 +193,47 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockAdded, userEmail }) =>
         )}
       </div>
 
+      {/* 错误消息 */}
+      {error && (
+        <div className="absolute z-10 mt-1 w-full bg-red-50 border border-red-200 rounded-md p-3">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-800">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 搜索结果下拉列表 */}
       {isDropdownOpen && searchResults.length > 0 && (
         <div className="absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
           {searchResults.map((stock, index) => (
             <div
-              key={stock.code}
+              key={stock.stock_code}
               className={`cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-blue-50 ${
                 index === selectedIndex ? 'bg-blue-50 text-blue-900' : 'text-gray-900'
               }`}
               onClick={() => handleSelectStock(stock)}
             >
-              <div className="flex items-center">
-                <span className="font-medium truncate">{stock.name}</span>
-                <span className="ml-2 text-sm text-gray-500">{stock.code}</span>
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-medium truncate">{stock.stock_name}</span>
+                  <span className="ml-2 text-sm text-gray-500">{stock.stock_code}</span>
+                </div>
+                {stock.match_type && (
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                    stock.match_type === 'code' 
+                      ? 'bg-blue-100 text-blue-800' 
+                      : 'bg-green-100 text-green-800'
+                  }`}>
+                    {stock.match_type === 'code' ? '代码' : '名称'}
+                  </span>
+                )}
               </div>
             </div>
           ))}
@@ -220,7 +251,7 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockAdded, userEmail }) =>
                 股票信息
               </label>
               <div className="text-sm text-gray-600">
-                {selectedStock.name} ({selectedStock.code})
+                {selectedStock.stock_name} ({selectedStock.stock_code})
               </div>
             </div>
 

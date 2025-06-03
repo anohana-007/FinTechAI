@@ -7,7 +7,6 @@ import { AnalysisPanel } from './AnalysisPanel';
 import { NotificationCard } from './NotificationCard';
 import { AddStockForm } from './AddStockForm';
 import { EditStockForm } from './EditStockForm';
-import StockSearch from './StockSearch';
 import AlertLogPage from './AlertLogPage';
 import { Stock, AlertInfo, NewStockData } from '../types/types';
 import { fetchWatchlist, addStock, removeStock, updateStock, checkAlertsStatus } from '../services/apiService';
@@ -291,15 +290,6 @@ export const Dashboard: React.FC = () => {
           <h1 className="text-2xl font-semibold leading-9 text-black">
             股票监控仪表盘 {!state.isAuthenticated && <span className="text-sm text-gray-500">(演示模式)</span>}
           </h1>
-          <div className="flex gap-4 items-center max-sm:flex-col max-sm:w-full">
-            {/* 股票搜索组件 */}
-            <div className="w-80 max-sm:w-full">
-              <StockSearch 
-                onStockAdded={loadStocks} 
-                userEmail={userEmail}
-              />
-            </div>
-          </div>
         </header>
 
         {/* 未认证用户提示 */}
@@ -356,7 +346,7 @@ export const Dashboard: React.FC = () => {
                 </button>
               </div>
               
-              {/* 过滤搜索框移动到这里 */}
+              {/* 过滤搜索框 */}
               <div className="relative mb-4">
                 <input
                   type="text"
@@ -423,6 +413,7 @@ export const Dashboard: React.FC = () => {
             onSubmit={handleAddStock}
             onCancel={() => setShowAddForm(false)}
             userEmail={userEmail}
+            isAuthenticated={state.isAuthenticated}
           />
         )}
         
