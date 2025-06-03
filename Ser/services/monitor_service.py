@@ -8,6 +8,7 @@ from .email_service import send_email_alert, format_stock_alert_email
 from .ai_analysis_service import get_basic_ai_analysis
 from .alert_manager import is_new_alert, get_recent_alerts
 from .database_service import save_alert_log, init_database
+from .auth_service import get_user_config, get_user_config_by_email
 
 # 配置日志
 logging.basicConfig(
@@ -20,11 +21,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("monitor_service")
 
-# 是否发送邮件提醒
-ENABLE_EMAIL_ALERTS = os.getenv('ENABLE_EMAIL_ALERTS', 'False').lower() == 'true'
-
-# 是否启用AI分析
-ENABLE_AI_ANALYSIS = os.getenv('ENABLE_AI_ANALYSIS', 'False').lower() == 'true'
+# 配置开关
+ENABLE_EMAIL_ALERTS = True  # 是否启用邮件提醒
+ENABLE_AI_ANALYSIS = True  # 是否启用AI分析
 
 def check_thresholds():
     """
@@ -54,8 +53,11 @@ def check_thresholds():
         
         logger.info(f"检查股票: {stock_code} ({stock_name})")
         
+        # 获取用户配置（用于AI分析和股价获取）
+        user_config = get_user_config_by_email(user_email) if user_email else None
+        
         # 获取当前股价
-        current_price = get_stock_price(stock_code)
+        current_price = get_stock_price(stock_code, user_config)
         
         # 如果无法获取价格，跳过
         if current_price is None:
@@ -84,7 +86,7 @@ def check_thresholds():
                 # 添加AI分析
                 if ENABLE_AI_ANALYSIS:
                     try:
-                        ai_analysis = get_basic_ai_analysis(stock_code, current_price, 'UP')
+                        ai_analysis = get_basic_ai_analysis(stock_code, current_price, 'UP', user_config)
                         alert['ai_analysis'] = ai_analysis
                     except Exception as e:
                         logger.error(f"获取AI分析时出错: {e}")
@@ -133,7 +135,7 @@ def check_thresholds():
                 # 添加AI分析
                 if ENABLE_AI_ANALYSIS:
                     try:
-                        ai_analysis = get_basic_ai_analysis(stock_code, current_price, 'DOWN')
+                        ai_analysis = get_basic_ai_analysis(stock_code, current_price, 'DOWN', user_config)
                         alert['ai_analysis'] = ai_analysis
                     except Exception as e:
                         logger.error(f"获取AI分析时出错: {e}")
@@ -227,10 +229,13 @@ def check_and_get_alerts():
             # 添加AI分析（如果启用）
             if ENABLE_AI_ANALYSIS and 'ai_analysis' not in alert:
                 try:
+                    # 获取用户配置
+                    user_config = get_user_config_by_email(alert.get('user_email')) if alert.get('user_email') else None
                     ai_analysis = get_basic_ai_analysis(
                         alert['stock_code'], 
                         alert['price'], 
-                        alert['direction']
+                        alert['direction'],
+                        user_config
                     )
                     alert['ai_analysis'] = ai_analysis
                 except Exception as e:

@@ -94,30 +94,51 @@ def validate_stock_data(data):
     返回:
     bool: 数据是否有效
     """
+    print(f"[调试] 验证股票数据: {data}")
+    
     # 检查必要字段
     required_fields = ['stock_code', 'stock_name', 'upper_threshold', 'lower_threshold', 'user_email']
-    if not all(field in data for field in required_fields):
+    missing_fields = [field for field in required_fields if field not in data]
+    if missing_fields:
+        print(f"[调试] 缺少必要字段: {missing_fields}")
         return False
     
+    print(f"[调试] 所有必要字段都存在")
+    
     # 验证股票代码格式 (简单验证，可根据实际需求调整)
-    if not re.match(r'^\d{6}\.[A-Z]{2}$', data['stock_code']):
+    stock_code = data['stock_code']
+    print(f"[调试] 验证股票代码格式: {stock_code}")
+    if not re.match(r'^\d{6}\.[A-Z]{2}$', stock_code):
+        print(f"[调试] 股票代码格式不正确: {stock_code} (应为6位数字.2位大写字母)")
         return False
+    
+    print(f"[调试] 股票代码格式正确")
     
     # 验证阈值是数字
     try:
-        float(data['upper_threshold'])
-        float(data['lower_threshold'])
-    except (ValueError, TypeError):
+        upper = float(data['upper_threshold'])
+        lower = float(data['lower_threshold'])
+        print(f"[调试] 阈值转换成功: 上限={upper}, 下限={lower}")
+    except (ValueError, TypeError) as e:
+        print(f"[调试] 阈值转换失败: {e}")
         return False
     
     # 验证下限小于上限
-    if float(data['lower_threshold']) >= float(data['upper_threshold']):
+    if lower >= upper:
+        print(f"[调试] 下限阈值({lower})必须小于上限阈值({upper})")
         return False
+    
+    print(f"[调试] 阈值验证通过")
     
     # 验证邮箱格式
-    if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', data['user_email']):
+    user_email = data['user_email']
+    print(f"[调试] 验证邮箱格式: {user_email}")
+    if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', user_email):
+        print(f"[调试] 邮箱格式不正确: {user_email}")
         return False
     
+    print(f"[调试] 邮箱格式正确")
+    print(f"[调试] 所有验证通过")
     return True
 
 def remove_stock(stock_code, user_email):

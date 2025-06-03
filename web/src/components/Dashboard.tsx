@@ -91,12 +91,15 @@ export const Dashboard: React.FC = () => {
 
     const checkAlerts = async () => {
       try {
-        const alertData = await checkAlertsStatus();
-        if (alertData) {
-          setAlertInfo(alertData);
+        const alertResponse = await checkAlertsStatus();
+        if (alertResponse.has_alerts && alertResponse.alerts.length > 0) {
+          // 显示第一个告警（如果有多个告警，可以在这里实现更复杂的逻辑）
+          const firstAlert = alertResponse.alerts[0];
+          setAlertInfo(firstAlert);
           setShowNotification(true);
+          
           // 如果有告警，选中相关股票
-          const alertedStock = stocks.find(s => s.stock_code === alertData.stock_code);
+          const alertedStock = stocks.find(s => s.stock_code === firstAlert.stock_code);
           if (alertedStock) {
             setSelectedStock(alertedStock);
           }

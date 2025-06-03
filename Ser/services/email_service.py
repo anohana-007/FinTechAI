@@ -109,7 +109,7 @@ def format_stock_alert_email(alert, ai_analysis=None, user_config: Optional[Dict
     tuple: (邮件主题, 邮件内容)
     """
     direction = "上涨" if alert['direction'] == 'UP' else "下跌"
-    direction_symbol = "📈" if alert['direction'] == 'UP' else "📉"
+    direction_symbol = "[UP]" if alert['direction'] == 'UP' else "[DOWN]"
     
     subject = f"{direction_symbol} 股票价格提醒: {alert['stock_name']}已{direction}至阈值价格"
     

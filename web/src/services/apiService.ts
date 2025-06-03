@@ -13,7 +13,18 @@ import {
   SessionResponse,
   UserSettingsData,
   UserSettingsResponse,
-  ChangePasswordRequest
+  UserSettingsDetailResponse,
+  ChangePasswordRequest,
+  AIAnalysisResult,
+  ManualAnalysisRequest,
+  ManualAnalysisResponse,
+  AlertsStatusResponse,
+  AIProvidersResponse,
+  ConnectivityTestRequest,
+  ConnectivityTestResponse,
+  ProxyTestRequest,
+  ProxyTestResult,
+  ProxyValidationResult
 } from '../types/types';
 
 const API_BASE_URL = 'http://localhost:5000';
@@ -105,17 +116,14 @@ export const updateStock = async (
   }
 };
 
-export const checkAlertsStatus = async (): Promise<AlertInfo | null> => {
+export const checkAlertsStatus = async (): Promise<AlertsStatusResponse> => {
   try {
     const response = await makeRequest(`${API_BASE_URL}/api/check_alerts_status`);
     if (!response.ok) {
       throw new Error(`Failed to check alerts: ${response.status} ${response.statusText}`);
     }
     const data = await response.json();
-    if (!data || Object.keys(data).length === 0) {
-      return null;
-    }
-    return data as AlertInfo;
+    return data as AlertsStatusResponse;
   } catch (error) {
     console.error('Error checking alerts:', error);
     throw error;
@@ -274,6 +282,21 @@ export const fetchUserSettings = async (): Promise<UserSettingsResponse> => {
   }
 };
 
+export const fetchUserSettingsDetail = async (): Promise<UserSettingsDetailResponse> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/user/settings?detail=true`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Failed to fetch user settings detail: ${response.status}`);
+    }
+    const data: UserSettingsDetailResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching user settings detail:', error);
+    throw error;
+  }
+};
+
 export const updateUserSettings = async (settings: UserSettingsData): Promise<AuthResponse> => {
   try {
     const response = await makeRequest(`${API_BASE_URL}/api/user/settings`, {
@@ -306,6 +329,117 @@ export const changePassword = async (passwordData: ChangePasswordRequest): Promi
     return data;
   } catch (error) {
     console.error('Error changing password:', error);
+    throw error;
+  }
+};
+
+export const analyzeStockManually = async (
+  stockCode: string, 
+  llmPreference?: 'openai' | 'gemini' | 'deepseek' | 'google'
+): Promise<ManualAnalysisResponse> => {
+  try {
+    const requestData: ManualAnalysisRequest = {
+      stock_code: stockCode
+    };
+    
+    if (llmPreference) {
+      requestData.llm_preference = llmPreference;
+    }
+
+    const response = await makeRequest(`${API_BASE_URL}/api/analyze_stock_manually`, {
+      method: 'POST',
+      body: JSON.stringify(requestData),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Analysis failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const data: ManualAnalysisResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error analyzing stock manually:', error);
+    throw error;
+  }
+};
+
+export const fetchAIProviders = async (): Promise<AIProvidersResponse> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/ai_providers`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch AI providers: ${response.status} ${response.statusText}`);
+    }
+    const data: AIProvidersResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching AI providers:', error);
+    throw error;
+  }
+};
+
+export const testAIConnectivity = async (
+  testData: ConnectivityTestRequest
+): Promise<ConnectivityTestResponse> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/test_ai_connectivity`, {
+      method: 'POST',
+      body: JSON.stringify(testData),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Connectivity test failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const data: ConnectivityTestResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error testing AI connectivity:', error);
+    throw error;
+  }
+};
+
+export const testProxyConnectivity = async (
+  proxySettings: ProxyTestRequest['proxy_settings']
+): Promise<ProxyTestResult> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/test_proxy_connectivity`, {
+      method: 'POST',
+      body: JSON.stringify({ proxy_settings: proxySettings }),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Proxy test failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const data: ProxyTestResult = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error testing proxy connectivity:', error);
+    throw error;
+  }
+};
+
+export const validateProxySettings = async (
+  proxySettings: ProxyTestRequest['proxy_settings']
+): Promise<ProxyValidationResult> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/validate_proxy_settings`, {
+      method: 'POST',
+      body: JSON.stringify({ proxy_settings: proxySettings }),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Proxy validation failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const data: ProxyValidationResult = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error validating proxy settings:', error);
     throw error;
   }
 };

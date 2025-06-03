@@ -75,15 +75,6 @@ export const StockCard: React.FC<StockCardProps> = ({ stock, isSelected, onClick
             编辑
           </button>
         )}
-        <button 
-          className="text-sm font-medium leading-5 text-white bg-black hover:bg-gray-800 rounded-md cursor-pointer h-[37px] w-[85px] transition-colors"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClick(stock);
-          }}
-        >
-          AI分析
-        </button>
       </div>
     </article>
   );

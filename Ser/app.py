@@ -1,5 +1,7 @@
 import os
 import threading
+# 导入日志配置来修复Windows控制台编码问题
+import logging_config
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -15,8 +17,10 @@ from services.database_service import get_alert_logs, get_alert_logs_count, init
 from services.auth_service import (
     init_user_database, register_user, authenticate_user, 
     get_user_by_id, get_user_config, get_user_config_summary, 
-    update_user_config, change_password
+    get_user_config_for_editing, update_user_config, change_password
 )
+from services.ai_connectivity_service import test_ai_connectivity
+from services.proxy_test_service import test_proxy_connectivity, validate_proxy_settings
 import config
 
 # 加载环境变量
@@ -242,14 +246,29 @@ def session_info():
 def get_user_settings():
     """获取用户设置"""
     try:
-        config_summary = get_user_config_summary(session['user_id'])
-        if config_summary:
-            return jsonify({
-                "success": True,
-                "settings": config_summary
-            }), 200
+        # 获取查询参数，判断是获取摘要还是详细信息
+        detail = request.args.get('detail', 'false').lower() == 'true'
+        
+        if detail:
+            # 获取详细配置信息用于编辑
+            config_detail = get_user_config_for_editing(session['user_id'])
+            if config_detail:
+                return jsonify({
+                    "success": True,
+                    "settings": config_detail
+                }), 200
+            else:
+                return jsonify({"error": "获取用户设置失败"}), 500
         else:
-            return jsonify({"error": "获取用户设置失败"}), 500
+            # 获取配置摘要
+            config_summary = get_user_config_summary(session['user_id'])
+            if config_summary:
+                return jsonify({
+                    "success": True,
+                    "settings": config_summary
+                }), 200
+            else:
+                return jsonify({"error": "获取用户设置失败"}), 500
             
     except Exception as e:
         app.logger.error(f"获取用户设置出错: {e}")
@@ -293,6 +312,17 @@ def update_user_settings():
             # 过滤空值
             ai_keys = {k: v for k, v in data['ai_api_keys'].items() if v and v.strip()}
             config_data['ai_api_keys'] = ai_keys if ai_keys else {}
+        
+        # 处理AI配置（新的详细配置结构）
+        if 'ai_configurations' in data and isinstance(data['ai_configurations'], dict):
+            config_data['ai_configurations'] = data['ai_configurations']
+        
+        # 处理代理设置
+        if 'proxy_settings' in data and isinstance(data['proxy_settings'], dict):
+            config_data['proxy_settings'] = data['proxy_settings']
+        
+        if 'preferred_llm' in data:
+            config_data['preferred_llm'] = data['preferred_llm'].strip() if data['preferred_llm'] else 'openai'
         
         # 更新配置
         success, message = update_user_config(session['user_id'], config_data)
@@ -377,25 +407,110 @@ def stock_search():
         return jsonify({"error": "股票搜索失败"}), 500
 
 @app.route('/api/watchlist', methods=['GET'])
+@login_required
 def watchlist():
-    """获取用户关注的股票列表"""
-    stocks = get_watchlist()
-    return jsonify(stocks)
+    """获取用户关注的股票列表，包含实时价格"""
+    try:
+        app.logger.info("开始获取用户关注列表和实时价格...")
+        
+        # 获取基础关注列表
+        stocks = get_watchlist()
+        app.logger.info(f"从文件获取到 {len(stocks)} 只股票")
+        
+        if not stocks:
+            app.logger.info("关注列表为空")
+            return jsonify([])
+        
+        # 获取当前用户配置（用于股价获取）
+        user_config = get_current_user_config()
+        if not user_config:
+            app.logger.warning("无法获取用户配置，将返回不含价格的列表")
+            return jsonify(stocks)
+        
+        app.logger.info("开始获取实时股票价格...")
+        
+        # 为每只股票获取实时价格
+        updated_stocks = []
+        for stock in stocks:
+            stock_code = stock.get('stock_code')
+            app.logger.info(f"获取股票 {stock_code} 的实时价格...")
+            
+            try:
+                from services.stock_service import get_stock_price
+                current_price = get_stock_price(stock_code, user_config)
+                
+                # 更新股票信息
+                updated_stock = stock.copy()
+                updated_stock['current_price'] = current_price
+                
+                if current_price:
+                    app.logger.info(f"  [成功] {stock_code} 当前价格: ¥{current_price}")
+                else:
+                    app.logger.warning(f"  [失败] {stock_code} 无法获取价格")
+                
+                updated_stocks.append(updated_stock)
+                
+            except Exception as e:
+                app.logger.error(f"获取股票 {stock_code} 价格时出错: {e}")
+                # 即使获取价格失败，也添加到列表中（价格为None）
+                updated_stock = stock.copy()
+                updated_stock['current_price'] = None
+                updated_stocks.append(updated_stock)
+        
+        app.logger.info(f"成功返回 {len(updated_stocks)} 只股票的信息")
+        return jsonify(updated_stocks)
+        
+    except Exception as e:
+        app.logger.error(f"获取关注列表时出错: {e}")
+        return jsonify({"error": "获取关注列表失败，请稍后重试"}), 500
 
 @app.route('/api/add_stock', methods=['POST'])
 def add_stock_to_watchlist():
     """添加股票到关注列表"""
-    data = request.json
-    if not data:
-        return jsonify({"error": "无效的请求数据"}), 400
-    
-    # 添加股票到关注列表
-    success, message = add_stock(data)
-    
-    if success:
-        return jsonify({"message": message}), 201
-    else:
-        return jsonify({"error": message}), 400
+    try:
+        app.logger.info("=== 开始添加股票到关注列表 ===")
+        
+        data = request.json
+        app.logger.info(f"接收到的请求数据: {data}")
+        
+        if not data:
+            app.logger.error("请求数据为空")
+            return jsonify({"error": "无效的请求数据"}), 400
+        
+        # 验证必要字段
+        required_fields = ['stock_code', 'stock_name', 'upper_threshold', 'lower_threshold', 'user_email']
+        missing_fields = [field for field in required_fields if field not in data or data[field] is None]
+        
+        if missing_fields:
+            app.logger.error(f"缺少必要字段: {missing_fields}")
+            return jsonify({"error": f"缺少必要字段: {', '.join(missing_fields)}"}), 400
+        
+        app.logger.info("必要字段验证通过")
+        
+        # 记录详细的字段信息
+        app.logger.info(f"股票代码: {data['stock_code']}")
+        app.logger.info(f"股票名称: {data['stock_name']}")
+        app.logger.info(f"上限阈值: {data['upper_threshold']} (类型: {type(data['upper_threshold'])})")
+        app.logger.info(f"下限阈值: {data['lower_threshold']} (类型: {type(data['lower_threshold'])})")
+        app.logger.info(f"用户邮箱: {data['user_email']}")
+        
+        # 添加股票到关注列表
+        app.logger.info("调用add_stock函数...")
+        success, message = add_stock(data)
+        
+        app.logger.info(f"add_stock结果: success={success}, message={message}")
+        
+        if success:
+            app.logger.info("股票添加成功!")
+            return jsonify({"message": message}), 201
+        else:
+            app.logger.warning(f"股票添加失败: {message}")
+            return jsonify({"error": message}), 400
+            
+    except Exception as e:
+        app.logger.error(f"添加股票时发生异常: {e}")
+        app.logger.error("=== 添加股票异常结束 ===")
+        return jsonify({"error": "服务器内部错误，请稍后重试"}), 500
 
 @app.route('/api/remove_stock', methods=['DELETE'])
 def remove_stock_from_watchlist():
@@ -485,6 +600,116 @@ def check_alerts_status():
         "has_alerts": len(formatted_alerts) > 0,
         "alerts": formatted_alerts
     })
+
+@app.route('/api/analyze_stock_manually', methods=['POST'])
+@login_required
+def analyze_stock_manually():
+    """手动分析股票"""
+    try:
+        app.logger.info("=== 开始手动股票AI分析 ===")
+        
+        data = request.json
+        if not data:
+            app.logger.error("请求数据为空")
+            return jsonify({"error": "无效的请求数据"}), 400
+        
+        stock_code = data.get('stock_code', '').strip()
+        llm_preference = data.get('llm_preference', '').strip().lower()
+        
+        app.logger.info(f"请求参数: stock_code={stock_code}, llm_preference={llm_preference}")
+        
+        if not stock_code:
+            app.logger.error("股票代码为空")
+            return jsonify({"error": "股票代码不能为空"}), 400
+        
+        # 获取用户配置
+        user_config = get_current_user_config()
+        if not user_config:
+            app.logger.error("无法获取用户配置")
+            return jsonify({"error": "用户配置获取失败"}), 401
+        
+        app.logger.info("[成功] 用户配置获取成功")
+        
+        # 如果没有指定LLM偏好，使用用户配置的默认值
+        if not llm_preference:
+            llm_preference = user_config.get('preferred_llm', 'openai')
+            app.logger.info(f"使用用户默认LLM偏好: {llm_preference}")
+        
+        # 验证LLM偏好
+        valid_llms = ['openai', 'gemini', 'deepseek', 'google']  # 添加google支持
+        if llm_preference not in valid_llms:
+            app.logger.error(f"不支持的LLM类型: {llm_preference}")
+            return jsonify({"error": f"不支持的LLM类型: {llm_preference}。支持的类型: {', '.join(valid_llms)}"}), 400
+        
+        app.logger.info(f"[成功] LLM偏好验证通过: {llm_preference}")
+        
+        # 检查AI配置
+        ai_configurations = user_config.get('ai_configurations', {})
+        app.logger.info(f"用户AI配置数量: {len(ai_configurations)}")
+        
+        # 显示AI配置详情
+        for provider_id, config in ai_configurations.items():
+            enabled = config.get('enabled', False)
+            has_key = bool(config.get('api_key'))
+            app.logger.info(f"  - {provider_id}: {'启用' if enabled else '禁用'}, {'有密钥' if has_key else '无密钥'}")
+        
+        # 获取股票当前价格
+        app.logger.info(f"开始获取股票 {stock_code} 的当前价格...")
+        
+        from services.stock_service import get_stock_price
+        current_price = get_stock_price(stock_code, user_config)
+        
+        if current_price is None:
+            app.logger.error(f"无法获取股票 {stock_code} 的价格")
+            return jsonify({"error": "无法获取股票价格，请检查股票代码是否正确"}), 404
+        
+        app.logger.info(f"[成功] 股票价格获取成功: ¥{current_price}")
+        
+        # 调用AI分析服务
+        app.logger.info(f"开始调用AI分析服务: {llm_preference}")
+        
+        from services.ai_analysis_service import get_ai_analysis
+        analysis_result = get_ai_analysis(
+            stock_code=stock_code,
+            current_price=current_price,
+            llm_preference=llm_preference,
+            user_config=user_config
+        )
+        
+        app.logger.info(f"AI分析服务调用完成")
+        
+        # 检查分析结果
+        if analysis_result.get('error'):
+            app.logger.error(f"AI分析失败: {analysis_result.get('message')}")
+            app.logger.error(f"详细错误: {analysis_result}")
+            return jsonify({
+                "error": analysis_result.get('message', 'AI分析失败'),
+                "details": analysis_result
+            }), 500
+        
+        # 返回成功结果
+        response_data = {
+            "success": True,
+            "stock_code": stock_code,
+            "current_price": current_price,
+            "llm_used": analysis_result.get('provider', llm_preference),
+            "analysis": analysis_result
+        }
+        
+        app.logger.info(f"[完成] 手动股票分析成功完成!")
+        app.logger.info(f"  - 股票: {stock_code}")
+        app.logger.info(f"  - 价格: ¥{current_price}")
+        app.logger.info(f"  - LLM: {analysis_result.get('provider', llm_preference)}")
+        app.logger.info(f"  - 评分: {analysis_result.get('overall_score')}")
+        app.logger.info(f"  - 建议: {analysis_result.get('recommendation')}")
+        app.logger.info("=== 手动股票AI分析结束 ===")
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        app.logger.error(f"手动股票分析出错: {e}")
+        app.logger.error("=== 手动股票AI分析异常结束 ===")
+        return jsonify({"error": "股票分析失败，请稍后重试"}), 500
 
 @app.route('/api/reset_alert', methods=['POST'])
 def reset_alert_status():
@@ -612,6 +837,218 @@ def start_scheduler():
     # 启动调度器
     scheduler.start()
     app.logger.info("股票价格监控定时任务已启动")
+
+@app.route('/api/test_ai_connectivity', methods=['POST'])
+@login_required
+def test_ai_connectivity_endpoint():
+    """测试AI服务连通性"""
+    try:
+        app.logger.info("=== 开始AI连通性测试 ===")
+        
+        data = request.json
+        if not data:
+            app.logger.error("请求数据为空")
+            return jsonify({"error": "无效的请求数据"}), 400
+        
+        provider = data.get('provider', '').strip()
+        model = data.get('model', '').strip()
+        base_url = data.get('base_url', '').strip()
+        api_key = data.get('api_key', '').strip()
+        
+        app.logger.info(f"连通性测试参数: provider={provider}, model={model}, base_url={base_url}")
+        
+        if not all([provider, model, api_key]):
+            app.logger.error(f"缺少必要参数: provider={bool(provider)}, model={bool(model)}, api_key={bool(api_key)}")
+            return jsonify({"error": "缺少必要参数：provider, model, api_key"}), 400
+        
+        # 强制刷新用户配置，确保获取最新数据
+        app.logger.info(f"强制刷新用户配置: user_id={session['user_id']}")
+        
+        # 等待一小段时间确保数据库同步（如果刚刚更新过配置）
+        import time
+        time.sleep(0.05)
+        
+        # 获取用户的代理设置
+        user_config = get_current_user_config()
+        if user_config:
+            app.logger.info("成功获取用户配置")
+            
+            # 详细记录用户的AI配置状态
+            ai_configurations = user_config.get('ai_configurations', {})
+            app.logger.info(f"用户AI配置: {len(ai_configurations)} 个提供商")
+            
+            for provider_id, config in ai_configurations.items():
+                has_api_key = bool(config.get('api_key'))
+                model_id = config.get('model_id', 'N/A')
+                enabled = config.get('enabled', False)
+                app.logger.info(f"  {provider_id}: 模型={model_id}, 启用={enabled}, 有密钥={has_api_key}")
+            
+            proxy_settings = user_config.get('proxy_settings', {})
+            if proxy_settings and proxy_settings.get('enabled'):
+                proxy_host = proxy_settings.get('host', 'N/A')
+                app.logger.info(f"使用代理设置: {proxy_host}")
+            else:
+                app.logger.info("未启用代理")
+        else:
+            app.logger.warning("无法获取用户配置，将使用空代理设置")
+            proxy_settings = {}
+        
+        proxy_settings = user_config.get('proxy_settings', {}) if user_config else {}
+        
+        app.logger.info("开始执行连通性测试...")
+        
+        # 执行连通性测试
+        result = test_ai_connectivity(
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            proxy_settings=proxy_settings
+        )
+        
+        app.logger.info(f"连通性测试完成: 成功={result.get('success', False)}")
+        if not result.get('success'):
+            app.logger.error(f"测试失败原因: {result.get('error', 'Unknown')}")
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        app.logger.error(f"AI连通性测试出错: {e}", exc_info=True)
+        return jsonify({"error": "连通性测试失败，请稍后重试"}), 500
+
+@app.route('/api/ai_providers', methods=['GET'])
+def get_ai_providers():
+    """获取可用的AI服务提供商和模型列表"""
+    try:
+        providers = {
+            'openai': {
+                'name': 'OpenAI',
+                'description': 'OpenAI提供的GPT系列模型',
+                'default_base_url': 'https://api.openai.com/v1/chat/completions',
+                'models': [
+                    {'id': 'gpt-3.5-turbo', 'name': 'GPT-3.5 Turbo', 'description': '快速、高效的对话模型'},
+                    {'id': 'gpt-4', 'name': 'GPT-4', 'description': '更强大的多模态模型'},
+                    {'id': 'gpt-4-turbo', 'name': 'GPT-4 Turbo', 'description': 'GPT-4的优化版本'},
+                    {'id': 'gpt-4o', 'name': 'GPT-4o', 'description': '最新的GPT-4模型'}
+                ]
+            },
+            'deepseek': {
+                'name': 'DeepSeek',
+                'description': 'DeepSeek提供的代码和对话模型',
+                'default_base_url': 'https://api.deepseek.com/v1/chat/completions',
+                'models': [
+                    {'id': 'deepseek-chat', 'name': 'DeepSeek Chat', 'description': '通用对话模型'},
+                    {'id': 'deepseek-coder', 'name': 'DeepSeek Coder', 'description': '专业代码模型'}
+                ]
+            },
+            'google': {
+                'name': 'Google',
+                'description': 'Google提供的Gemini系列模型',
+                'default_base_url': 'https://generativelanguage.googleapis.com/v1beta/models/',
+                'models': [
+                    {'id': 'gemini-pro', 'name': 'Gemini Pro', 'description': '高性能多模态模型'},
+                    {'id': 'gemini-pro-vision', 'name': 'Gemini Pro Vision', 'description': '支持图像理解的模型'},
+                    {'id': 'gemini-1.5-pro', 'name': 'Gemini 1.5 Pro', 'description': '最新版本的Gemini Pro'},
+                    {'id': 'gemini-1.5-flash', 'name': 'Gemini 1.5 Flash', 'description': '快速响应版本'}
+                ]
+            },
+            'anthropic': {
+                'name': 'Anthropic',
+                'description': 'Anthropic提供的Claude系列模型',
+                'default_base_url': 'https://api.anthropic.com/v1/messages',
+                'models': [
+                    {'id': 'claude-3-haiku-20240307', 'name': 'Claude 3 Haiku', 'description': '快速、轻量级模型'},
+                    {'id': 'claude-3-sonnet-20240229', 'name': 'Claude 3 Sonnet', 'description': '平衡性能和速度'},
+                    {'id': 'claude-3-opus-20240229', 'name': 'Claude 3 Opus', 'description': '最强大的Claude模型'}
+                ]
+            },
+            'custom': {
+                'name': '自定义API',
+                'description': '自定义的AI API服务',
+                'default_base_url': '',
+                'models': [
+                    {'id': 'custom-model', 'name': '自定义模型', 'description': '用户自定义的AI模型'}
+                ]
+            }
+        }
+        
+        return jsonify(providers), 200
+        
+    except Exception as e:
+        app.logger.error(f"获取AI提供商列表出错: {e}")
+        return jsonify({"error": "获取提供商列表失败"}), 500
+
+@app.route('/api/test_proxy_connectivity', methods=['POST'])
+@login_required
+def test_proxy_connectivity_endpoint():
+    """测试代理服务连通性"""
+    try:
+        app.logger.info("=== 开始代理连通性测试 ===")
+        
+        data = request.json
+        app.logger.info(f"接收到的请求数据: {data}")
+        
+        if not data:
+            app.logger.error("请求数据为空")
+            return jsonify({"error": "无效的请求数据"}), 400
+        
+        # 从请求中获取代理设置
+        proxy_settings = data.get('proxy_settings', {})
+        app.logger.info(f"代理设置: {proxy_settings}")
+        
+        if not proxy_settings:
+            app.logger.error("缺少代理设置")
+            return jsonify({"error": "缺少代理设置"}), 400
+        
+        # 执行连通性测试
+        app.logger.info("调用test_proxy_connectivity...")
+        result = test_proxy_connectivity(proxy_settings)
+        
+        app.logger.info(f"代理测试结果: success={result.get('success')}")
+        app.logger.info("=== 代理连通性测试完成 ===")
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        app.logger.error(f"代理连通性测试出错: {e}")
+        app.logger.error("=== 代理连通性测试异常结束 ===")
+        return jsonify({"error": "连通性测试失败，请稍后重试"}), 500
+
+@app.route('/api/validate_proxy_settings', methods=['POST'])
+@login_required
+def validate_proxy_settings_endpoint():
+    """验证代理设置"""
+    try:
+        app.logger.info("=== 开始验证代理设置 ===")
+        
+        data = request.json
+        app.logger.info(f"接收到的验证请求数据: {data}")
+        
+        if not data:
+            app.logger.error("验证请求数据为空")
+            return jsonify({"error": "无效的请求数据"}), 400
+        
+        # 从请求中获取代理设置
+        proxy_settings = data.get('proxy_settings', {})
+        app.logger.info(f"待验证的代理设置: {proxy_settings}")
+        
+        if not proxy_settings:
+            app.logger.error("缺少代理设置")
+            return jsonify({"error": "缺少代理设置"}), 400
+        
+        # 验证代理设置
+        app.logger.info("调用validate_proxy_settings...")
+        result = validate_proxy_settings(proxy_settings)
+        
+        app.logger.info(f"代理验证结果: valid={result.get('valid')}")
+        app.logger.info("=== 代理设置验证完成 ===")
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        app.logger.error(f"验证代理设置出错: {e}")
+        app.logger.error("=== 代理设置验证异常结束 ===")
+        return jsonify({"error": "验证代理设置失败"}), 500
 
 if __name__ == '__main__':
     # 启动定时任务
