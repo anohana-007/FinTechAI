@@ -24,7 +24,8 @@ import {
   ConnectivityTestResponse,
   ProxyTestRequest,
   ProxyTestResult,
-  ProxyValidationResult
+  ProxyValidationResult,
+  TushareTokenValidationResult
 } from '../types/types';
 
 const API_BASE_URL = 'http://localhost:5000';
@@ -440,6 +441,26 @@ export const validateProxySettings = async (
     return data;
   } catch (error) {
     console.error('Error validating proxy settings:', error);
+    throw error;
+  }
+};
+
+export const validateTushareToken = async (token: string): Promise<TushareTokenValidationResult> => {
+  try {
+    const response = await makeRequest(`${API_BASE_URL}/api/validate_tushare_token`, {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `Token validation failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const data: TushareTokenValidationResult = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error validating Tushare token:', error);
     throw error;
   }
 };

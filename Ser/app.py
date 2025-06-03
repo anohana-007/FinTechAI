@@ -1,15 +1,15 @@
-import os
+import json
+import logging
 import threading
 # 导入日志配置来修复Windows控制台编码问题
 import logging_config
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
-from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from functools import wraps
 from datetime import datetime, timedelta
-from services.stock_service import get_stock_price, search_stocks
+from services.stock_service import get_stock_price, search_stocks, validate_tushare_token
 from services.watchlist_service import get_watchlist, add_stock, remove_stock, update_stock_thresholds
 from services.monitor_service import check_thresholds, format_alert_message, check_and_get_alerts
 from services.alert_manager import reset_alert
@@ -21,11 +21,6 @@ from services.auth_service import (
 )
 from services.ai_connectivity_service import test_ai_connectivity
 from services.proxy_test_service import test_proxy_connectivity, validate_proxy_settings
-import config
-
-# 加载环境变量
-load_dotenv()
-print(f"环境变量TUSHARE_TOKEN: {'已设置' if os.getenv('TUSHARE_TOKEN') else '未设置'}")
 
 # 初始化数据库
 try:
@@ -38,8 +33,7 @@ except Exception as e:
 app = Flask(__name__)
 
 # 配置Flask会话
-# app.secret_key = config.SECRET_KEY
-app.secret_key = 'fintech-ai-secret-key-2024-very-secure-and-long-for-testing'  # 临时硬编码用于测试
+app.secret_key = 'fintech-ai-secret-key-2024-very-secure-and-long-for-testing'  # 项目使用数据库存储，使用固定的密钥
 # 设置session过期时间为7天
 app.permanent_session_lifetime = timedelta(days=7)
 # 配置session cookie的属性
@@ -570,36 +564,78 @@ def check_alerts_status():
     
     如果发现突破阈值的股票，返回警报信息
     """
-    # 获取警报列表
-    alerts = check_and_get_alerts()
-    
-    # 格式化响应数据
-    formatted_alerts = []
-    for alert in alerts:
-        # 确保字段名称一致 - 兼容不同的字段名
-        current_price = alert.get('current_price') or alert.get('price') or alert.get('triggered_price')
-        threshold = alert.get('threshold') or alert.get('threshold_price')
+    try:
+        # 首先尝试从数据库获取最近10分钟的告警日志
+        from datetime import datetime, timedelta
+        from services.database_service import get_alert_logs
         
-        formatted_alert = {
-            'stock_code': alert['stock_code'],
-            'stock_name': alert.get('stock_name', '未知股票'),
-            'current_price': current_price,
-            'threshold': threshold,
-            'direction': alert['direction'],
-            'timestamp': alert.get('timestamp'),
-            'message': format_alert_message({
-                **alert,
-                'current_price': current_price,
-                'threshold': threshold
-            }),
-            'ai_analysis': alert.get('ai_analysis', '')
-        }
-        formatted_alerts.append(formatted_alert)
-    
-    return jsonify({
-        "has_alerts": len(formatted_alerts) > 0,
-        "alerts": formatted_alerts
-    })
+        # 获取最近10分钟的告警
+        recent_time = datetime.now() - timedelta(minutes=10)
+        recent_alerts = get_alert_logs(
+            start_date=recent_time,
+            limit=10,  # 最多返回10条
+            offset=0
+        )
+        
+        # 转换数据库告警为API格式
+        formatted_alerts = []
+        for alert in recent_alerts:
+            formatted_alert = {
+                'stock_code': alert['stock_code'],
+                'stock_name': alert['stock_name'],
+                'current_price': alert['triggered_price'],
+                'threshold': alert['threshold_price'],
+                'direction': alert['direction'],
+                'timestamp': alert['alert_timestamp'],
+                'message': format_alert_message({
+                    'stock_code': alert['stock_code'],
+                    'stock_name': alert['stock_name'],
+                    'current_price': alert['triggered_price'],
+                    'threshold': alert['threshold_price'],
+                    'direction': alert['direction'],
+                    'timestamp': alert['alert_timestamp']
+                }),
+                'ai_analysis': alert.get('ai_analysis', '')
+            }
+            formatted_alerts.append(formatted_alert)
+        
+        # 如果数据库中没有最近的告警，使用原有的检查逻辑作为后备
+        if not formatted_alerts:
+            alerts = check_and_get_alerts()
+            
+            for alert in alerts:
+                # 确保字段名称一致 - 兼容不同的字段名
+                current_price = alert.get('current_price') or alert.get('price') or alert.get('triggered_price')
+                threshold = alert.get('threshold') or alert.get('threshold_price')
+                
+                formatted_alert = {
+                    'stock_code': alert['stock_code'],
+                    'stock_name': alert.get('stock_name', '未知股票'),
+                    'current_price': current_price,
+                    'threshold': threshold,
+                    'direction': alert['direction'],
+                    'timestamp': alert.get('timestamp'),
+                    'message': format_alert_message({
+                        **alert,
+                        'current_price': current_price,
+                        'threshold': threshold
+                    }),
+                    'ai_analysis': alert.get('ai_analysis', '')
+                }
+                formatted_alerts.append(formatted_alert)
+        
+        return jsonify({
+            "has_alerts": len(formatted_alerts) > 0,
+            "alerts": formatted_alerts
+        })
+        
+    except Exception as e:
+        app.logger.error(f"检查告警状态失败: {e}")
+        # 发生错误时，返回空的告警列表
+        return jsonify({
+            "has_alerts": False,
+            "alerts": []
+        })
 
 @app.route('/api/analyze_stock_manually', methods=['POST'])
 @login_required
@@ -981,74 +1017,71 @@ def get_ai_providers():
 @app.route('/api/test_proxy_connectivity', methods=['POST'])
 @login_required
 def test_proxy_connectivity_endpoint():
-    """测试代理服务连通性"""
+    """测试代理连通性"""
     try:
-        app.logger.info("=== 开始代理连通性测试 ===")
-        
         data = request.json
-        app.logger.info(f"接收到的请求数据: {data}")
-        
         if not data:
-            app.logger.error("请求数据为空")
             return jsonify({"error": "无效的请求数据"}), 400
         
-        # 从请求中获取代理设置
+        # 解析代理设置 - 前端发送的数据格式为 { proxy_settings: {...} }
         proxy_settings = data.get('proxy_settings', {})
-        app.logger.info(f"代理设置: {proxy_settings}")
         
-        if not proxy_settings:
-            app.logger.error("缺少代理设置")
-            return jsonify({"error": "缺少代理设置"}), 400
-        
-        # 执行连通性测试
-        app.logger.info("调用test_proxy_connectivity...")
+        # 执行代理连通性测试
         result = test_proxy_connectivity(proxy_settings)
-        
-        app.logger.info(f"代理测试结果: success={result.get('success')}")
-        app.logger.info("=== 代理连通性测试完成 ===")
-        
         return jsonify(result), 200
         
     except Exception as e:
         app.logger.error(f"代理连通性测试出错: {e}")
-        app.logger.error("=== 代理连通性测试异常结束 ===")
-        return jsonify({"error": "连通性测试失败，请稍后重试"}), 500
+        return jsonify({"error": "代理连通性测试失败，请稍后重试"}), 500
 
 @app.route('/api/validate_proxy_settings', methods=['POST'])
 @login_required
 def validate_proxy_settings_endpoint():
     """验证代理设置"""
     try:
-        app.logger.info("=== 开始验证代理设置 ===")
-        
         data = request.json
-        app.logger.info(f"接收到的验证请求数据: {data}")
-        
         if not data:
-            app.logger.error("验证请求数据为空")
             return jsonify({"error": "无效的请求数据"}), 400
         
-        # 从请求中获取代理设置
+        # 解析代理设置
         proxy_settings = data.get('proxy_settings', {})
-        app.logger.info(f"待验证的代理设置: {proxy_settings}")
         
-        if not proxy_settings:
-            app.logger.error("缺少代理设置")
-            return jsonify({"error": "缺少代理设置"}), 400
-        
-        # 验证代理设置
-        app.logger.info("调用validate_proxy_settings...")
+        # 执行代理设置验证
         result = validate_proxy_settings(proxy_settings)
+        return jsonify(result), 200
         
-        app.logger.info(f"代理验证结果: valid={result.get('valid')}")
-        app.logger.info("=== 代理设置验证完成 ===")
+    except Exception as e:
+        app.logger.error(f"代理设置验证出错: {e}")
+        return jsonify({"error": "代理设置验证失败，请稍后重试"}), 500
+
+@app.route('/api/validate_tushare_token', methods=['POST'])
+@login_required
+def validate_tushare_token_endpoint():
+    """验证Tushare Token有效性"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "无效的请求数据"}), 400
+        
+        token = data.get('token', '').strip()
+        if not token:
+            return jsonify({"error": "Token不能为空"}), 400
+        
+        # 获取用户配置（包含代理设置）
+        user_config = get_current_user_config()
+        
+        # 执行验证
+        result = validate_tushare_token(token, user_config)
         
         return jsonify(result), 200
         
     except Exception as e:
-        app.logger.error(f"验证代理设置出错: {e}")
-        app.logger.error("=== 代理设置验证异常结束 ===")
-        return jsonify({"error": "验证代理设置失败"}), 500
+        app.logger.error(f"验证Tushare Token出错: {e}")
+        return jsonify({
+            "valid": False,
+            "message": "Token验证失败",
+            "details": {"error": str(e)}
+        }), 500
 
 if __name__ == '__main__':
     # 启动定时任务

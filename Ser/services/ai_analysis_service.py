@@ -1,21 +1,15 @@
-import os
-import logging
-import requests
 import json
-from dotenv import load_dotenv
-from typing import Optional, Dict, Any
-from datetime import datetime
+import requests
+from typing import Optional, Dict, Any, List, Tuple
+import logging
+import re
 
-# 加载环境变量
-load_dotenv()
-
-# 配置日志
+# 日志配置
 logger = logging.getLogger('ai_analysis_service')
 
-# 全局AI API配置（作为后备配置）
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+# OpenAI API配置（仅作为常量）
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
+OPENAI_MODEL = 'gpt-3.5-turbo'
 
 # 结构化提示词模板
 STOCK_ANALYSIS_PROMPT = """
@@ -49,6 +43,40 @@ STOCK_ANALYSIS_PROMPT = """
 
 请确保输出为有效的JSON格式，不要包含任何其他文字。
 """
+
+def _clean_markdown_json(content: str) -> str:
+    """
+    清理Markdown代码块格式，提取纯JSON内容
+    
+    参数:
+    content (str): 可能包含Markdown格式的内容
+    
+    返回:
+    str: 清理后的JSON字符串
+    """
+    if not content:
+        return content
+    
+    # 移除开头和结尾的空白字符
+    content = content.strip()
+    
+    # 使用正则表达式匹配并移除Markdown代码块标记
+    # 匹配 ```json 或 ``` 开头，以及结尾的 ```
+    
+    # 处理开头的代码块标记
+    # 匹配: ```json, ```JSON, ``` 等
+    content = re.sub(r'^```(?:json|JSON)?\s*\n?', '', content, flags=re.MULTILINE)
+    
+    # 处理结尾的代码块标记
+    # 匹配结尾的 ```
+    content = re.sub(r'\n?```\s*$', '', content, flags=re.MULTILINE)
+    
+    # 再次清理首尾空白
+    content = content.strip()
+    
+    logger.debug(f"Markdown清理后的内容: {content[:200]}...")
+    
+    return content
 
 def get_ai_analysis(stock_code: str, current_price: float, llm_preference: str, 
                    user_config: Optional[Dict[str, Any]] = None, 
@@ -129,22 +157,32 @@ def get_ai_analysis(stock_code: str, current_price: float, llm_preference: str,
         price_change_info = "价格变化信息暂不可用"
         if additional_data:
             price_change_info = additional_data.get('price_change_info', price_change_info)
+            
+            # 如果有突破方向信息，生成更详细的价格变化描述
+            breakout_direction = additional_data.get('breakout_direction')
+            if breakout_direction:
+                if breakout_direction.upper() == 'UP':
+                    price_change_info = f"股票价格突破上涨，当前价格为{current_price}元，建议分析上涨动力和后续走势"
+                elif breakout_direction.upper() == 'DOWN':
+                    price_change_info = f"股票价格突破下跌，当前价格为{current_price}元，建议分析下跌原因和支撑位"
+                else:
+                    price_change_info = f"股票当前价格为{current_price}元，请综合分析其技术面和基本面情况"
         
         # 根据LLM偏好选择分析方法
         if mapped_preference == 'openai':
-            api_key = ai_api_keys.get('openai') or OPENAI_API_KEY
+            api_key = ai_api_keys.get('openai')
             if not api_key:
                 return _create_error_response("OpenAI API密钥未配置")
             return _analyze_with_openai(stock_code, current_price, price_change_info, api_key, proxies)
             
         elif mapped_preference == 'gemini':
-            api_key = ai_api_keys.get('gemini') or os.getenv('GEMINI_API_KEY', '')
+            api_key = ai_api_keys.get('gemini')
             if not api_key:
                 return _create_error_response("Gemini API密钥未配置")
             return _analyze_with_gemini(stock_code, current_price, price_change_info, api_key, proxies, user_config)
             
         elif mapped_preference == 'deepseek':
-            api_key = ai_api_keys.get('deepseek') or os.getenv('DEEPSEEK_API_KEY', '')
+            api_key = ai_api_keys.get('deepseek')
             if not api_key:
                 return _create_error_response("DeepSeek API密钥未配置")
             return _analyze_with_deepseek(stock_code, current_price, price_change_info, api_key, proxies)
@@ -201,14 +239,16 @@ def _analyze_with_openai(stock_code: str, current_price: float, price_change_inf
             result = response.json()
             content = result['choices'][0]['message']['content'].strip()
             
-            # 尝试解析JSON响应
+            # 清理Markdown格式并尝试解析JSON响应
             try:
-                analysis_result = json.loads(content)
+                cleaned_content = _clean_markdown_json(content)
+                analysis_result = json.loads(cleaned_content)
                 analysis_result['provider'] = 'openai'
                 logger.info(f"OpenAI分析成功: {stock_code}")
                 return analysis_result
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 logger.error(f"OpenAI返回的不是有效JSON: {content}")
+                logger.error(f"JSON解析错误: {e}")
                 return _create_fallback_response(content, 'openai')
         else:
             logger.error(f"OpenAI API请求失败: {response.status_code} {response.text}")
@@ -239,8 +279,10 @@ def _analyze_with_gemini(stock_code: str, current_price: float, price_change_inf
             if google_config:
                 configured_model = google_config.get('model_name') or google_config.get('model_id')
                 if configured_model:
-                    model_name = configured_model
-                    logger.info(f"使用用户配置的Gemini模型: {model_name}")
+                    # 标准化模型名称格式 - 统一转换为小写并用连字符分隔
+                    original_model = configured_model
+                    model_name = configured_model.lower().replace(' ', '-')
+                    logger.info(f"原始配置模型: {original_model}, 标准化后: {model_name}")
                 
                 # 也可以从配置中获取base_url
                 configured_base_url = google_config.get('base_url')
@@ -251,59 +293,155 @@ def _analyze_with_gemini(stock_code: str, current_price: float, price_change_inf
                     base_url = configured_base_url
                     logger.info(f"使用用户配置的base_url: {base_url}")
         
+        # 定义回退模型配置（与连通性测试保持一致）
+        fallback_models = [
+            model_name,  # 用户配置的模型（已标准化）
+            "gemini-pro",  # 稳定版
+            "gemini-1.5-pro",  # 推荐版本
+            "gemini-1.5-flash",  # 快速版本
+        ]
+        
+        # 去重，保持顺序
+        unique_models = []
+        for m in fallback_models:
+            if m not in unique_models:
+                unique_models.append(m)
+        
         prompt = STOCK_ANALYSIS_PROMPT.format(
             stock_code=stock_code,
             current_price=current_price,
             price_change_info=price_change_info
         )
         
-        # 构建正确的Gemini API URL
-        url = f"{base_url}{model_name}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
+        last_error = None
         
-        payload = {
-            "contents": [{
-                "parts": [{
-                    "text": prompt
-                }]
-            }],
-            "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 1500
-            }
-        }
-        
-        logger.info(f"调用Gemini API: {url}")
-        logger.info(f"使用模型: {model_name}")
-        
-        response = requests.post(url, headers=headers, json=payload, timeout=30, proxies=proxies)
-        
-        logger.info(f"Gemini API响应状态码: {response.status_code}")
-        
-        if response.status_code == 200:
-            result = response.json()
-            content = result['candidates'][0]['content']['parts'][0]['text'].strip()
+        # 尝试不同的模型配置（与连通性测试保持一致）
+        for test_model in unique_models:
+            logger.info(f"尝试Gemini分析模型: {test_model}")
             
-            # 尝试解析JSON响应
             try:
-                analysis_result = json.loads(content)
-                analysis_result['provider'] = 'gemini'
-                analysis_result['model_used'] = model_name  # 记录实际使用的模型
-                logger.info(f"Gemini分析成功: {stock_code}")
-                return analysis_result
-            except json.JSONDecodeError:
-                logger.error(f"Gemini返回的不是有效JSON: {content}")
-                return _create_fallback_response(content, 'gemini')
-        else:
-            error_text = response.text
-            logger.error(f"Gemini API请求失败: {response.status_code}")
-            logger.error(f"响应内容: {error_text}")
-            
-            # 检查是否是404错误（模型不存在）
-            if response.status_code == 404:
-                return _create_error_response(f"Gemini API请求失败 (HTTP 404)，请确保API Key正确传递。当前使用模型: {model_name}，请检查模型名称是否正确")
-            else:
-                return _create_error_response(f"Gemini API请求失败 (HTTP {response.status_code}): {error_text}")
+                # 构建正确的Gemini API URL
+                url = f"{base_url}{test_model}:generateContent?key={api_key}"
+                headers = {"Content-Type": "application/json"}
+                
+                payload = {
+                    "contents": [{
+                        "parts": [{
+                            "text": prompt
+                        }]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.7,
+                        "maxOutputTokens": 3000  # 增加到3000，避免被截断
+                    }
+                }
+                
+                logger.info(f"调用Gemini API: {url}")
+                logger.info(f"使用模型: {test_model}")
+                
+                response = requests.post(url, headers=headers, json=payload, timeout=30, proxies=proxies)
+                
+                logger.info(f"Gemini API响应状态码: {response.status_code}")
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    # 改进的响应解析逻辑，处理不同版本的响应格式
+                    try:
+                        content = None
+                        
+                        # 检查响应是否有candidates
+                        if 'candidates' not in result or not result['candidates']:
+                            logger.error(f"Gemini API响应中没有candidates: {json.dumps(result, indent=2)}")
+                            return _create_error_response(f"Gemini API响应格式异常：缺少candidates")
+                        
+                        candidate = result['candidates'][0]
+                        
+                        # 检查finish reason
+                        finish_reason = candidate.get('finishReason', '')
+                        if finish_reason == 'MAX_TOKENS':
+                            logger.warning(f"Gemini响应被截断 (MAX_TOKENS)，模型: {test_model}")
+                        elif finish_reason and finish_reason != 'STOP':
+                            logger.warning(f"Gemini响应异常结束: {finish_reason}")
+                        
+                        # 尝试解析content字段
+                        if 'content' not in candidate:
+                            logger.error(f"候选结果中没有content字段: {json.dumps(candidate, indent=2)}")
+                            return _create_error_response(f"Gemini API响应格式异常：候选结果缺少content")
+                        
+                        candidate_content = candidate['content']
+                        
+                        # 处理标准格式：content.parts[0].text
+                        if 'parts' in candidate_content and candidate_content['parts']:
+                            parts = candidate_content['parts']
+                            if len(parts) > 0 and 'text' in parts[0]:
+                                content = parts[0]['text'].strip()
+                                logger.info(f"使用标准格式解析成功，模型: {test_model}")
+                            else:
+                                logger.error(f"Parts格式异常: {json.dumps(parts, indent=2)}")
+                        
+                        # 处理预览版本格式：检查是否有其他字段包含实际内容
+                        elif 'text' in candidate_content:
+                            content = candidate_content['text'].strip()
+                            logger.info(f"使用预览版格式解析成功，模型: {test_model}")
+                        
+                        # 如果都没有找到内容，记录详细信息
+                        if not content:
+                            logger.error(f"无法提取内容，candidate_content结构: {json.dumps(candidate_content, indent=2)}")
+                            logger.error(f"完整响应: {json.dumps(result, indent=2)}")
+                            
+                            # 检查是否是因为被截断导致的空响应
+                            if finish_reason == 'MAX_TOKENS':
+                                return _create_error_response(f"Gemini API响应被截断，请尝试增加maxOutputTokens设置")
+                            else:
+                                return _create_error_response(f"Gemini API返回空内容，响应格式可能不兼容")
+                        
+                        # 有内容时继续处理
+                        if content:
+                            # 清理Markdown格式并尝试解析JSON响应
+                            try:
+                                cleaned_content = _clean_markdown_json(content)
+                                analysis_result = json.loads(cleaned_content)
+                                analysis_result['provider'] = 'gemini'
+                                analysis_result['model_used'] = test_model  # 记录实际使用的模型
+                                
+                                success_message = f"Gemini分析成功: {stock_code}，使用模型: {test_model}"
+                                if test_model != model_name:
+                                    success_message += f" (原配置模型 {model_name} 不可用，已自动切换)"
+                                
+                                logger.info(success_message)
+                                return analysis_result
+                            except json.JSONDecodeError as e:
+                                logger.error(f"Gemini返回的不是有效JSON: {content}")
+                                logger.error(f"JSON解析错误: {e}")
+                                logger.error(f"清理后的内容: {_clean_markdown_json(content)}")
+                                return _create_fallback_response(content, 'gemini')
+                        
+                    except KeyError as e:
+                        logger.error(f"解析Gemini响应时缺少必要字段: {e}")
+                        logger.error(f"完整响应: {json.dumps(result, indent=2)}")
+                        return _create_error_response(f"Gemini API响应格式错误：缺少字段 {e}")
+                else:
+                    error_text = response.text
+                    logger.error(f"Gemini API请求失败: {response.status_code}")
+                    logger.error(f"响应内容: {error_text}")
+                    
+                    # 如果是404错误，尝试下一个模型
+                    if response.status_code == 404:
+                        logger.info(f"模型 {test_model} 不存在，尝试下一个模型")
+                        last_error = f"模型 {test_model} 不存在"
+                        continue
+                    else:
+                        # 非404错误，直接返回错误
+                        return _create_error_response(f"Gemini API请求失败 (HTTP {response.status_code}): {error_text}")
+                        
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Gemini模型 {test_model} 请求异常: {e}")
+                last_error = f"模型 {test_model} 网络请求失败: {str(e)}"
+                continue
+        
+        # 所有模型都失败了
+        return _create_error_response(f"Gemini API所有模型都不可用。最后错误: {last_error}")
             
     except Exception as e:
         logger.error(f"Gemini分析出错: {e}")
@@ -341,14 +479,16 @@ def _analyze_with_deepseek(stock_code: str, current_price: float, price_change_i
             result = response.json()
             content = result['choices'][0]['message']['content'].strip()
             
-            # 尝试解析JSON响应
+            # 清理Markdown格式并尝试解析JSON响应
             try:
-                analysis_result = json.loads(content)
+                cleaned_content = _clean_markdown_json(content)
+                analysis_result = json.loads(cleaned_content)
                 analysis_result['provider'] = 'deepseek'
                 logger.info(f"DeepSeek分析成功: {stock_code}")
                 return analysis_result
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 logger.error(f"DeepSeek返回的不是有效JSON: {content}")
+                logger.error(f"JSON解析错误: {e}")
                 return _create_fallback_response(content, 'deepseek')
         else:
             logger.error(f"DeepSeek API请求失败: {response.status_code} {response.text}")

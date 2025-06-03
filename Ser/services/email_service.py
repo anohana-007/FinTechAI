@@ -1,26 +1,15 @@
-import os
 import smtplib
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
-from dotenv import load_dotenv
 from typing import Optional, Dict, Any
 from .ai_analysis_service import get_basic_ai_analysis
 
-# 加载环境变量
-load_dotenv()
-
-# 全局邮件配置（作为后备配置）
-SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.163.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT', '25'))
-SMTP_USE_SSL = os.getenv('SMTP_USE_SSL', 'False').lower() == 'true'
-SMTP_USERNAME = os.getenv('SMTP_USERNAME', '')
-SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
-EMAIL_SENDER = os.getenv('EMAIL_SENDER', SMTP_USERNAME)
-
-# 是否启用AI分析
-ENABLE_AI_ANALYSIS = os.getenv('ENABLE_AI_ANALYSIS', 'False').lower() == 'true'
+# 默认邮件配置（作为后备配置）
+DEFAULT_SMTP_SERVER = 'smtp.163.com'
+DEFAULT_SMTP_PORT = 25
+DEFAULT_SMTP_USE_SSL = False
 
 # 日志配置
 logger = logging.getLogger('email_service')
@@ -40,17 +29,17 @@ def send_email_alert(recipient_email, subject, body, user_config: Optional[Dict[
     """
     # 优先使用用户配置，否则使用全局配置
     if user_config:
-        smtp_server = user_config.get('email_smtp_server', SMTP_SERVER)
-        smtp_port = user_config.get('email_smtp_port', SMTP_PORT)
-        smtp_user = user_config.get('email_smtp_user', SMTP_USERNAME)
-        smtp_password = user_config.get('email_smtp_password', SMTP_PASSWORD)
+        smtp_server = user_config.get('email_smtp_server', DEFAULT_SMTP_SERVER)
+        smtp_port = user_config.get('email_smtp_port', DEFAULT_SMTP_PORT)
+        smtp_user = user_config.get('email_smtp_user', '')
+        smtp_password = user_config.get('email_smtp_password', '')
         email_sender = user_config.get('email_sender_address', smtp_user)
     else:
-        smtp_server = SMTP_SERVER
-        smtp_port = SMTP_PORT
-        smtp_user = SMTP_USERNAME
-        smtp_password = SMTP_PASSWORD
-        email_sender = EMAIL_SENDER
+        smtp_server = DEFAULT_SMTP_SERVER
+        smtp_port = DEFAULT_SMTP_PORT
+        smtp_user = ''
+        smtp_password = ''
+        email_sender = smtp_user
     
     if not smtp_user or not smtp_password:
         logger.error("未配置邮箱账号密码，无法发送邮件。请配置邮件设置")
@@ -68,7 +57,7 @@ def send_email_alert(recipient_email, subject, body, user_config: Optional[Dict[
         
         # 连接SMTP服务器
         # 判断是否使用SSL（基于端口号自动判断或者用户配置）
-        use_ssl = smtp_port == 465 or SMTP_USE_SSL
+        use_ssl = smtp_port == 465 or DEFAULT_SMTP_USE_SSL
         
         if use_ssl:
             smtp = smtplib.SMTP_SSL(smtp_server, smtp_port)
@@ -114,7 +103,7 @@ def format_stock_alert_email(alert, ai_analysis=None, user_config: Optional[Dict
     subject = f"{direction_symbol} 股票价格提醒: {alert['stock_name']}已{direction}至阈值价格"
     
     # 如果没有提供AI分析结果且启用了AI分析，则获取分析
-    if ai_analysis is None and ENABLE_AI_ANALYSIS:
+    if ai_analysis is None:
         try:
             ai_analysis = get_basic_ai_analysis(
                 alert['stock_code'], 

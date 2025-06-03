@@ -84,23 +84,45 @@ def check_thresholds():
             # 检查是否是新警报
             if is_new_alert(stock_code, 'UP', current_price, upper_threshold):
                 # 添加AI分析
-                if ENABLE_AI_ANALYSIS:
+                if ENABLE_AI_ANALYSIS and 'ai_analysis' not in alert:
                     try:
-                        ai_analysis = get_basic_ai_analysis(stock_code, current_price, 'UP', user_config)
-                        alert['ai_analysis'] = ai_analysis
+                        # 获取用户配置
+                        user_config = get_user_config_by_email(alert.get('user_email')) if alert.get('user_email') else None
+                        # 使用结构化AI分析函数
+                        from .ai_analysis_service import get_ai_analysis
+                        ai_analysis_result = get_ai_analysis(
+                            alert['stock_code'], 
+                            alert.get('triggered_price', alert.get('current_price', 0)), 
+                            'openai',  # 默认使用openai，也可以从用户配置读取
+                            user_config,
+                            {'breakout_direction': 'UP'}
+                        )
+                        
+                        # 如果AI分析成功，保存完整的结构化结果
+                        if ai_analysis_result and not ai_analysis_result.get('error'):
+                            alert['ai_analysis'] = ai_analysis_result
+                        else:
+                            # 如果AI分析失败，保存错误信息的简化版本
+                            alert['ai_analysis'] = ai_analysis_result.get('message', 'AI分析暂不可用')
                     except Exception as e:
                         logger.error(f"获取AI分析时出错: {e}")
                         alert['ai_analysis'] = "AI分析暂不可用"
                 
                 # 保存到数据库
                 try:
+                    # 处理AI分析数据，如果是结构化数据则转换为JSON字符串
+                    ai_analysis_for_db = alert.get('ai_analysis', '')
+                    if isinstance(ai_analysis_for_db, dict):
+                        import json
+                        ai_analysis_for_db = json.dumps(ai_analysis_for_db, ensure_ascii=False)
+                    
                     alert_data = {
                         'stock_code': stock_code,
                         'stock_name': stock_name,
                         'triggered_price': current_price,
                         'threshold_price': upper_threshold,
                         'direction': 'UP',
-                        'ai_analysis': alert.get('ai_analysis', ''),
+                        'ai_analysis': ai_analysis_for_db,
                         'user_email': user_email,
                         'alert_timestamp': datetime.now()
                     }
@@ -133,23 +155,45 @@ def check_thresholds():
             # 检查是否是新警报
             if is_new_alert(stock_code, 'DOWN', current_price, lower_threshold):
                 # 添加AI分析
-                if ENABLE_AI_ANALYSIS:
+                if ENABLE_AI_ANALYSIS and 'ai_analysis' not in alert:
                     try:
-                        ai_analysis = get_basic_ai_analysis(stock_code, current_price, 'DOWN', user_config)
-                        alert['ai_analysis'] = ai_analysis
+                        # 获取用户配置
+                        user_config = get_user_config_by_email(alert.get('user_email')) if alert.get('user_email') else None
+                        # 使用结构化AI分析函数
+                        from .ai_analysis_service import get_ai_analysis
+                        ai_analysis_result = get_ai_analysis(
+                            alert['stock_code'], 
+                            alert.get('triggered_price', alert.get('current_price', 0)), 
+                            'openai',  # 默认使用openai，也可以从用户配置读取
+                            user_config,
+                            {'breakout_direction': 'DOWN'}
+                        )
+                        
+                        # 如果AI分析成功，保存完整的结构化结果
+                        if ai_analysis_result and not ai_analysis_result.get('error'):
+                            alert['ai_analysis'] = ai_analysis_result
+                        else:
+                            # 如果AI分析失败，保存错误信息的简化版本
+                            alert['ai_analysis'] = ai_analysis_result.get('message', 'AI分析暂不可用')
                     except Exception as e:
                         logger.error(f"获取AI分析时出错: {e}")
                         alert['ai_analysis'] = "AI分析暂不可用"
                 
                 # 保存到数据库
                 try:
+                    # 处理AI分析数据，如果是结构化数据则转换为JSON字符串
+                    ai_analysis_for_db = alert.get('ai_analysis', '')
+                    if isinstance(ai_analysis_for_db, dict):
+                        import json
+                        ai_analysis_for_db = json.dumps(ai_analysis_for_db, ensure_ascii=False)
+                    
                     alert_data = {
                         'stock_code': stock_code,
                         'stock_name': stock_name,
                         'triggered_price': current_price,
                         'threshold_price': lower_threshold,
                         'direction': 'DOWN',
-                        'ai_analysis': alert.get('ai_analysis', ''),
+                        'ai_analysis': ai_analysis_for_db,
                         'user_email': user_email,
                         'alert_timestamp': datetime.now()
                     }
@@ -231,13 +275,22 @@ def check_and_get_alerts():
                 try:
                     # 获取用户配置
                     user_config = get_user_config_by_email(alert.get('user_email')) if alert.get('user_email') else None
-                    ai_analysis = get_basic_ai_analysis(
+                    # 使用结构化AI分析函数
+                    from .ai_analysis_service import get_ai_analysis
+                    ai_analysis_result = get_ai_analysis(
                         alert['stock_code'], 
-                        alert['price'], 
-                        alert['direction'],
-                        user_config
+                        alert.get('triggered_price', alert.get('current_price', 0)), 
+                        'openai',  # 默认使用openai，也可以从用户配置读取
+                        user_config,
+                        {'breakout_direction': alert['direction']}
                     )
-                    alert['ai_analysis'] = ai_analysis
+                    
+                    # 如果AI分析成功，保存完整的结构化结果
+                    if ai_analysis_result and not ai_analysis_result.get('error'):
+                        alert['ai_analysis'] = ai_analysis_result
+                    else:
+                        # 如果AI分析失败，保存错误信息的简化版本
+                        alert['ai_analysis'] = ai_analysis_result.get('message', 'AI分析暂不可用')
                 except Exception as e:
                     logger.error(f"获取AI分析时出错: {e}")
                     alert['ai_analysis'] = "AI分析暂不可用"
@@ -258,15 +311,43 @@ def format_alert_message(alert):
     """
     direction = "上涨" if alert['direction'] == 'UP' else "下跌"
     
+    # 处理时间戳格式
+    timestamp = alert.get('timestamp')
+    if timestamp:
+        # 如果是datetime对象，转换为字符串
+        if hasattr(timestamp, 'strftime'):
+            timestamp = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        # 如果是ISO格式字符串，尝试转换
+        elif isinstance(timestamp, str) and 'T' in timestamp:
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                timestamp = dt.strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                pass  # 保持原始格式
+    else:
+        timestamp = "未知时间"
+    
     # 基本信息
     message = (
         f"股票价格预警: {alert['stock_name']}({alert['stock_code']})\n"
         f"当前价格: {alert['current_price']} 已{direction}至阈值 {alert['threshold']}\n"
-        f"触发时间: {alert['timestamp']}"
+        f"触发时间: {timestamp}"
     )
     
     # 添加AI分析（如果有）
-    if 'ai_analysis' in alert and alert['ai_analysis']:
-        message += f"\n\nAI分析: {alert['ai_analysis']}"
+    ai_analysis = alert.get('ai_analysis')
+    if ai_analysis:
+        # 如果AI分析是结构化数据，提取关键信息
+        if isinstance(ai_analysis, dict):
+            if ai_analysis.get('technical_summary'):
+                message += f"\n\nAI技术分析: {ai_analysis['technical_summary']}"
+            if ai_analysis.get('recommendation'):
+                message += f"\n投资建议: {ai_analysis['recommendation']}"
+            if ai_analysis.get('overall_score'):
+                message += f"\nAI评分: {ai_analysis['overall_score']}/100"
+        else:
+            # 文本格式的AI分析
+            message += f"\n\nAI分析: {ai_analysis}"
     
     return message 

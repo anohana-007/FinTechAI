@@ -3,6 +3,7 @@ import os
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+import json
 
 # 配置日志
 logger = logging.getLogger('database_service')
@@ -238,6 +239,16 @@ def get_alert_logs(
         # 转换为字典列表
         results = []
         for row in rows:
+            # 处理AI分析数据，尝试解析JSON格式
+            ai_analysis = row['ai_analysis']
+            if ai_analysis:
+                try:
+                    # 尝试解析JSON格式的AI分析
+                    ai_analysis = json.loads(ai_analysis)
+                except (json.JSONDecodeError, TypeError):
+                    # 如果不是JSON格式，保持原文本
+                    pass
+            
             results.append({
                 'id': row['id'],
                 'user_id': row['user_id'],
@@ -247,7 +258,7 @@ def get_alert_logs(
                 'triggered_price': row['triggered_price'],
                 'threshold_price': row['threshold_price'],
                 'direction': row['direction'],
-                'ai_analysis': row['ai_analysis'],
+                'ai_analysis': ai_analysis,
                 'user_email': row['user_email'],
                 'created_at': row['created_at'],
                 'updated_at': row['updated_at']

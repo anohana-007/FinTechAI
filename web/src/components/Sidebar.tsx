@@ -49,7 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavigate, currentPage = 'dashboard'
   const navItems = state.isAuthenticated ? authenticatedNavItems : unauthenticatedNavItems;
 
   return (
-    <nav className="absolute top-0 left-0 p-6 w-64 bg-white border-r border-solid border-r-neutral-200 h-[874px] max-md:relative max-md:p-4 max-md:w-full max-md:h-auto max-sm:px-2 max-sm:py-4">
+    <nav className="fixed top-0 left-0 z-40 p-6 w-64 bg-white border-r border-solid border-r-neutral-200 h-full overflow-y-auto max-lg:hidden">
       <h1 className="mb-8 text-xl font-semibold leading-8 text-black">
         FinTech AI
       </h1>
@@ -72,15 +72,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavigate, currentPage = 'dashboard'
       </button>
       
       {/* 导航项 */}
-      {navItems.map((item, index) => (
-        <NavItem 
-          key={index} 
-          icon={item.icon}
-          label={item.label}
-          isActive={item.page ? currentPage === item.page : false}
-          onClick={item.page ? () => onNavigate?.(item.page!) : undefined}
-        />
-      ))}
+      <div className="space-y-2">
+        {navItems.map((item, index) => (
+          <NavItem 
+            key={index} 
+            icon={item.icon}
+            label={item.label}
+            isActive={item.page ? currentPage === item.page : false}
+            onClick={item.page ? () => onNavigate?.(item.page!) : undefined}
+          />
+        ))}
+      </div>
 
       {/* 登录/登出按钮 */}
       {state.isAuthenticated ? (

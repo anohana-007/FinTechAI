@@ -14,7 +14,7 @@ import { fetchWatchlist, addStock, removeStock, updateStock, checkAlertsStatus }
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { state } = useAuth();
+  const { state, logout } = useAuth();
   
   // 状态管理
   const [stocks, setStocks] = useState<Stock[]>([]);
@@ -194,15 +194,99 @@ export const Dashboard: React.FC = () => {
     stock.stock_name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // 移动端导航组件
+  const MobileNav = ({ currentPage }: { currentPage: 'dashboard' | 'alert-log' | 'settings' }) => (
+    <div className="lg:hidden bg-white border-b border-gray-200 p-4 z-30">
+      <div className="flex justify-between items-center">
+        <h1 className="text-lg font-semibold text-black">
+          FinTech AI
+        </h1>
+        <div className="flex items-center space-x-4">
+          {/* 移动端导航按钮 */}
+          <button
+            onClick={() => handleNavigate('dashboard')}
+            className={`p-2 rounded-lg ${currentPage === 'dashboard' ? 'bg-blue-100 text-blue-600' : 'text-gray-600'}`}
+            title="仪表盘"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M7.5 15.8333V10.8333C7.5 10.3913 7.3244 9.96738 7.01184 9.65482C6.69928 9.34226 6.27536 9.16667 5.83333 9.16667H4.16667C3.72464 9.16667 3.30072 9.34226 2.98816 9.65482C2.67559 9.96738 2.5 10.3913 2.5 10.8333V15.8333C2.5 16.2754 2.67559 16.6993 2.98816 17.0118C3.30072 17.3244 3.72464 17.5 4.16667 17.5H5.83333C6.27536 17.5 6.69928 17.3244 7.01184 17.0118C7.3244 16.6993 7.5 16.2754 7.5 15.8333Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          
+          {state.isAuthenticated && (
+            <>
+              <button
+                onClick={() => handleNavigate('alert-log')}
+                className={`p-2 rounded-lg ${currentPage === 'alert-log' ? 'bg-blue-100 text-blue-600' : 'text-gray-600'}`}
+                title="历史告警"
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M10 6.66667V10L12.5 12.5M17.5 10C17.5 14.1421 14.1421 17.5 10 17.5C5.85786 17.5 2.5 14.1421 2.5 10C2.5 5.85786 5.85786 2.5 10 2.5C14.1421 2.5 17.5 5.85786 17.5 10Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              
+              <button
+                onClick={() => handleNavigate('settings')}
+                className={`p-2 rounded-lg ${currentPage === 'settings' ? 'bg-blue-100 text-blue-600' : 'text-gray-600'}`}
+                title="用户设置"
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M8.60417 3.5975C8.95917 2.13417 11.0408 2.13417 11.3958 3.5975M17.5 10C17.5 14.1421 14.1421 17.5 10 17.5C5.85786 17.5 2.5 14.1421 2.5 10C2.5 5.85786 5.85786 2.5 10 2.5C14.1421 2.5 17.5 5.85786 17.5 10Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </>
+          )}
+          
+          {/* 移动端登录/登出按钮 */}
+          {state.isAuthenticated ? (
+            <button
+              onClick={() => {
+                if (window.confirm('确定要登出吗？')) {
+                  logout();
+                }
+              }}
+              className="p-2 rounded-lg text-red-600 hover:bg-red-50"
+              title="登出"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M13.3333 14.1667L17.5 10L13.3333 5.83333M17.5 10H7.5M7.5 2.5H5.83333C5.39131 2.5 4.96738 2.67559 4.65482 2.98816C4.34226 3.30072 4.16667 3.72464 4.16667 4.16667V15.8333C4.16667 16.2754 4.34226 16.6993 4.65482 17.0118C4.96738 17.3244 5.39131 17.5 5.83333 17.5H7.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/login')}
+              className="p-2 rounded-lg text-indigo-600 hover:bg-indigo-50"
+              title="登录"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M6.66667 14.1667L2.5 10L6.66667 5.83333M2.5 10H12.5M12.5 2.5H14.1667C14.6087 2.5 15.0326 2.67559 15.3452 2.98816C15.6577 3.30072 15.8333 3.72464 15.8333 4.16667V15.8333C15.8333 16.2754 15.6577 16.6993 15.3452 17.0118C15.0326 17.3244 14.6087 17.5 14.1667 17.5H12.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   // 如果显示告警日志页面
   if (currentPage === 'alert-log') {
-    return <AlertLogPage userEmail={userEmail} onBack={() => setCurrentPage('dashboard')} />;
+    return (
+      <main className="relative min-h-screen bg-neutral-100 w-full overflow-hidden">
+        <Sidebar onNavigate={handleNavigate} currentPage={currentPage} />
+        <MobileNav currentPage={currentPage} />
+        <div className="ml-64 max-lg:ml-0">
+          <AlertLogPage userEmail={userEmail} onBack={() => setCurrentPage('dashboard')} />
+        </div>
+      </main>
+    );
   }
 
   return (
-    <main className="relative mx-auto max-w-none bg-neutral-100 h-[874px] w-[1271px] max-md:w-full max-md:h-auto max-md:max-w-[991px] max-sm:max-w-screen-sm">
+    <main className="relative min-h-screen bg-neutral-100 w-full overflow-hidden">
       <Sidebar onNavigate={handleNavigate} currentPage={currentPage} />
-      <section className="absolute top-0 left-64 h-[874px] w-[1015px] max-md:relative max-md:left-0 max-md:w-full">
+      <MobileNav currentPage={currentPage} />
+      
+      <section className="ml-64 min-h-screen flex flex-col max-lg:ml-0 max-lg:w-full">
         <header className="flex justify-between items-center px-8 py-4 w-full bg-white border-b border-solid border-b-neutral-200 min-h-[99px] max-sm:flex-col max-sm:gap-4 max-sm:p-4">
           <h1 className="text-2xl font-semibold leading-9 text-black">
             股票监控仪表盘 {!state.isAuthenticated && <span className="text-sm text-gray-500">(演示模式)</span>}
@@ -214,25 +298,6 @@ export const Dashboard: React.FC = () => {
                 onStockAdded={loadStocks} 
                 userEmail={userEmail}
               />
-            </div>
-            
-            {/* 原有的搜索框（用于过滤已添加的股票） */}
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="过滤自选股..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="py-2 pr-12 pl-4 w-60 text-base rounded-lg border border-solid border-neutral-200 h-[50px] text-neutral-400 max-sm:w-full"
-              />
-              <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
-                <div
-                  dangerouslySetInnerHTML={{
-                    __html:
-                      '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17.5 17.5L12.5 12.5M14.1667 8.33333C14.1667 11.555 11.555 14.1667 8.33333 14.1667C5.11167 14.1667 2.5 11.555 2.5 8.33333C2.5 5.11167 5.11167 2.5 8.33333 2.5C11.555 2.5 14.1667 5.11167 14.1667 8.33333Z" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>',
-                  }}
-                />
-              </div>
             </div>
           </div>
         </header>
@@ -270,51 +335,76 @@ export const Dashboard: React.FC = () => {
           </div>
         )}
         
-        <div className="flex gap-8 p-8 max-md:flex-col max-md:p-4">
-          <section className="p-6 bg-white rounded-xl border border-solid border-neutral-200 h-[722px] w-[623px] max-md:w-full overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold leading-9 text-black">
-                我的自选股
-              </h2>
-              <button 
-                className={`py-2 px-4 rounded-lg ${
-                  state.isAuthenticated 
-                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={() => state.isAuthenticated ? setShowAddForm(true) : alert('请先登录后再添加股票')}
-                disabled={!state.isAuthenticated}
-              >
-                添加股票
-              </button>
-            </div>
-            
-            {loading && <p className="text-center py-4">加载中...</p>}
-            {error && <p className="text-center py-4 text-red-500">{error}</p>}
-            
-            {!loading && !error && filteredStocks.length === 0 && (
-              <p className="text-center py-4 text-gray-500">
-                {searchQuery ? '没有找到匹配的股票' : (
-                  state.isAuthenticated 
-                    ? '您的自选股列表为空，点击"添加股票"开始'
-                    : '演示数据加载中...'
+        <div className="flex-1 flex gap-6 p-6 max-lg:flex-col max-lg:gap-4 max-lg:p-4">
+          {/* 股票列表板块 - 优化宽度 */}
+          <section className="flex-shrink-0 w-[420px] max-lg:w-full">
+            <div className="p-4 bg-white rounded-xl border border-solid border-neutral-200 h-full max-h-[calc(100vh-200px)] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-semibold leading-7 text-black">
+                  我的自选股
+                </h2>
+                <button 
+                  className={`py-1.5 px-3 text-sm rounded-lg ${
+                    state.isAuthenticated 
+                      ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                  onClick={() => state.isAuthenticated ? setShowAddForm(true) : alert('请先登录后再添加股票')}
+                  disabled={!state.isAuthenticated}
+                >
+                  添加股票
+                </button>
+              </div>
+              
+              {/* 过滤搜索框移动到这里 */}
+              <div className="relative mb-4">
+                <input
+                  type="text"
+                  placeholder="过滤自选股..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="py-2 pr-10 pl-3 w-full text-sm rounded-lg border border-solid border-neutral-200 h-[36px] text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html:
+                        '<svg width="14" height="14" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17.5 17.5L12.5 12.5M14.1667 8.33333C14.1667 11.555 11.555 14.1667 8.33333 14.1667C5.11167 14.1667 2.5 11.555 2.5 8.33333C2.5 5.11167 5.11167 2.5 8.33333 2.5C11.555 2.5 14.1667 5.11167 14.1667 8.33333Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>',
+                    }}
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                {loading && <p className="text-center py-4 text-sm text-gray-500">加载中...</p>}
+                {error && <p className="text-center py-4 text-red-500 text-sm">{error}</p>}
+                
+                {!loading && !error && filteredStocks.length === 0 && (
+                  <p className="text-center py-4 text-gray-500 text-sm">
+                    {searchQuery ? '没有找到匹配的股票' : (
+                      state.isAuthenticated 
+                        ? '您的自选股列表为空，点击"添加股票"开始'
+                        : '演示数据加载中...'
+                    )}
+                  </p>
                 )}
-              </p>
-            )}
-            
-            {!loading && !error && filteredStocks.map((stock) => (
-              <StockCard
-                key={stock.stock_code}
-                stock={stock}
-                isSelected={selectedStock?.stock_code === stock.stock_code}
-                onClick={setSelectedStock}
-                onEdit={handleEditStock}
-                onDelete={handleDeleteStock}
-              />
-            ))}
+                
+                {!loading && !error && filteredStocks.map((stock) => (
+                  <StockCard
+                    key={stock.stock_code}
+                    stock={stock}
+                    isSelected={selectedStock?.stock_code === stock.stock_code}
+                    onClick={setSelectedStock}
+                    onEdit={handleEditStock}
+                    onDelete={handleDeleteStock}
+                  />
+                ))}
+              </div>
+            </div>
           </section>
           
-          <section className="w-80 max-md:w-full">
+          {/* AI洞察分析板块 - 扩大为主要区域 */}
+          <section className="flex-1 min-w-0">
             <AnalysisPanel selectedStock={selectedStock} />
           </section>
         </div>

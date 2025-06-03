@@ -338,9 +338,7 @@ export interface ProxyTestResult {
 
 export interface ProxyValidationResult {
   valid: boolean;
-  errors?: string[];
-  warnings?: string[];
-  message: string;
+  errors: string[];
 }
 
 export interface ProxyTestRequest {
@@ -365,5 +363,22 @@ export interface UserSettingsDetailResponse {
     };
     proxy_settings: ProxySettings;
     preferred_llm: 'openai' | 'gemini' | 'deepseek';
+  };
+}
+
+// Tushare Token验证相关类型
+export interface TushareTokenValidationResult {
+  valid: boolean;
+  message: string;
+  details: {
+    error?: string;
+    suggestion?: string;
+    test_api?: string;
+    sample_count?: number;
+    sample_stocks?: Array<{
+      ts_code: string;
+      symbol: string;
+      name: string;
+    }>;
   };
 }

@@ -51,7 +51,17 @@ export const AIConfigurationPanel: React.FC<AIConfigurationPanelProps> = ({
     const provider = providers[providerId];
     
     if (existing) {
-      setTempConfig({ ...existing });
+      // 创建临时配置副本
+      const tempConfigCopy = { ...existing };
+      
+      // 如果API密钥被掩码了，清空它要求重新输入
+      if (tempConfigCopy.api_key && tempConfigCopy.api_key.includes('*')) {
+        tempConfigCopy.api_key = '';
+        console.log(`检测到掩码API密钥，已清空要求重新输入: ${providerId}`);
+      }
+      
+      setTempConfig(tempConfigCopy);
+      
       // 检查是否是自定义模型
       const isCustom = !provider?.models.find(m => m.id === existing.model_id);
       setIsCustomModel(isCustom);
@@ -110,9 +120,48 @@ export const AIConfigurationPanel: React.FC<AIConfigurationPanelProps> = ({
 
   // 测试连通性
   const testConnectivity = async (providerId: string) => {
-    const config = configurations[providerId];
+    // 优先使用编辑状态中的临时配置，否则使用已保存的配置
+    let config: AIProviderConfig;
+    
+    if (editingConfig === providerId && tempConfig) {
+      // 如果正在编辑此配置，使用临时配置
+      config = tempConfig;
+    } else {
+      // 否则使用已保存的配置
+      config = configurations[providerId];
+    }
+    
     if (!config) {
       console.error('配置不存在:', providerId);
+      return;
+    }
+
+    // 检查API Key是否被掩码了或为空
+    if (!config.api_key || config.api_key.trim() === '') {
+      setTestResults(prev => ({
+        ...prev,
+        [providerId]: {
+          success: false,
+          error: 'API密钥不能为空，请输入有效的API密钥',
+          provider: config.provider_id,
+          model: config.model_id,
+          timestamp: new Date().toISOString()
+        }
+      }));
+      return;
+    }
+    
+    if (config.api_key.includes('***') || config.api_key.includes('*')) {
+      setTestResults(prev => ({
+        ...prev,
+        [providerId]: {
+          success: false,
+          error: '检测到API密钥已被掩码处理，请点击"编辑"按钮重新输入完整的API密钥后再进行连通性测试',
+          provider: config.provider_id,
+          model: config.model_id,
+          timestamp: new Date().toISOString()
+        }
+      }));
       return;
     }
 
@@ -308,9 +357,22 @@ export const AIConfigurationPanel: React.FC<AIConfigurationPanelProps> = ({
                 </div>
                 <div>
                   <span className="font-medium">API密钥：</span>
-                  <span className="font-mono">
-                    {config.api_key ? `${config.api_key.substring(0, 8)}...` : '未配置'}
-                  </span>
+                  {config.api_key ? (
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono">
+                        {config.api_key.includes('***') || config.api_key.includes('*') 
+                          ? config.api_key 
+                          : `${config.api_key.substring(0, 8)}...`}
+                      </span>
+                      {(config.api_key.includes('***') || config.api_key.includes('*')) && (
+                        <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded">
+                          已掩码
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-red-500">未配置</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -456,6 +518,16 @@ export const AIConfigurationPanel: React.FC<AIConfigurationPanelProps> = ({
                   placeholder="输入您的API密钥"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                {/* 检查原始配置是否有掩码API密钥 */}
+                {configurations[editingConfig] && 
+                 configurations[editingConfig].api_key && 
+                 configurations[editingConfig].api_key.includes('*') && (
+                  <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+                    <p className="text-sm text-yellow-800">
+                      🔒 检测到已有API密钥（已掩码显示），如需修改请重新输入完整的API密钥
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* 启用状态 */}
@@ -471,29 +543,67 @@ export const AIConfigurationPanel: React.FC<AIConfigurationPanelProps> = ({
                   启用此配置
                 </label>
               </div>
+
+              {/* 测试结果显示 */}
+              {testResults[editingConfig] && (
+                <div className={`p-3 rounded-md text-sm ${
+                  testResults[editingConfig].success 
+                    ? 'bg-green-50 border border-green-200' 
+                    : 'bg-red-50 border border-red-200'
+                }`}>
+                  <div className="flex items-center space-x-2">
+                    <div className={`w-2 h-2 rounded-full ${testResults[editingConfig].success ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                    <span className={`font-medium ${testResults[editingConfig].success ? 'text-green-800' : 'text-red-800'}`}>
+                      {testResults[editingConfig].success ? '连接成功' : '连接失败'}
+                    </span>
+                  </div>
+                  <p className={`mt-1 ${testResults[editingConfig].success ? 'text-green-700' : 'text-red-700'}`}>
+                    {testResults[editingConfig].message || testResults[editingConfig].error}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {new Date(testResults[editingConfig].timestamp).toLocaleString()}
+                  </p>
+                </div>
+              )}
             </div>
 
-            <div className="flex justify-end space-x-3 mt-6">
+            <div className="flex justify-between items-center mt-6">
+              {/* 左侧：测试连通性按钮 */}
               <button
-                onClick={() => {
-                  setEditingConfig(null);
-                  setTempConfig(null);
-                }}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={saveConfiguration}
-                disabled={!tempConfig.api_key.trim() || (isCustomModel && !customModelId.trim())}
+                onClick={() => testConnectivity(editingConfig)}
+                disabled={!tempConfig.api_key.trim() || testingConfigs.has(editingConfig)}
                 className={`px-4 py-2 rounded-md transition-colors ${
-                  tempConfig.api_key.trim() && (!isCustomModel || customModelId.trim())
-                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  tempConfig.api_key.trim() && !testingConfigs.has(editingConfig)
+                    ? 'bg-green-600 text-white hover:bg-green-700'
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
               >
-                保存配置
+                {testingConfigs.has(editingConfig) ? '测试中...' : '测试连通性'}
               </button>
+              
+              {/* 右侧：操作按钮 */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setEditingConfig(null);
+                    setTempConfig(null);
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={saveConfiguration}
+                  disabled={!tempConfig.api_key.trim() || (isCustomModel && !customModelId.trim())}
+                  className={`px-4 py-2 rounded-md transition-colors ${
+                    tempConfig.api_key.trim() && (!isCustomModel || customModelId.trim())
+                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  保存配置
+                </button>
+              </div>
             </div>
           </div>
         </div>

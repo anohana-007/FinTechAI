@@ -56,14 +56,36 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ selectedStock, ale
   useEffect(() => {
     if (alertInfo?.ai_analysis) {
       // 如果告警包含结构化AI分析
-      if (typeof alertInfo.ai_analysis === 'object') {
+      if (typeof alertInfo.ai_analysis === 'object' && !Array.isArray(alertInfo.ai_analysis)) {
+        // 直接使用结构化数据
         setAnalysisResult(alertInfo.ai_analysis);
+      } else if (typeof alertInfo.ai_analysis === 'string') {
+        // 尝试解析JSON字符串
+        try {
+          const parsedAnalysis = JSON.parse(alertInfo.ai_analysis);
+          setAnalysisResult(parsedAnalysis);
+        } catch (e) {
+          // 如果不是JSON，作为文本分析处理
+          setAnalysisResult({
+            overall_score: alertInfo.direction === 'UP' ? 75 : 35,
+            recommendation: alertInfo.direction === 'UP' ? 'Hold' : 'Monitor',
+            technical_summary: alertInfo.ai_analysis,
+            fundamental_summary: '基于告警自动生成的分析',
+            sentiment_summary: '需要进一步观察市场反应',
+            key_reasons: [
+              `价格${alertInfo.direction === 'UP' ? '突破上限' : '跌破下限'}: ¥${alertInfo.threshold}`,
+              `当前价格: ¥${alertInfo.current_price}`,
+              'AI建议关注后续走势'
+            ],
+            confidence_level: 'Medium'
+          });
+        }
       } else {
-        // 兼容旧的文本格式分析
+        // 兼容其他格式，创建默认分析
         setAnalysisResult({
           overall_score: alertInfo.direction === 'UP' ? 75 : 35,
           recommendation: alertInfo.direction === 'UP' ? 'Hold' : 'Monitor',
-          technical_summary: alertInfo.ai_analysis,
+          technical_summary: '告警触发，需要关注价格走势',
           fundamental_summary: '基于告警自动生成的分析',
           sentiment_summary: '需要进一步观察市场反应',
           key_reasons: [
@@ -143,113 +165,178 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ selectedStock, ale
   ];
 
   return (
-    <aside className="p-6 bg-white rounded-xl border border-solid border-neutral-200 h-[722px] w-[296px] max-md:w-full overflow-y-auto">
-      <h2 className="mb-6 text-2xl font-semibold leading-9 text-black">
-        AI分析洞察
-      </h2>
-      
-      <div className="mb-6">
-        <h3 className="text-xl font-semibold leading-8 text-black">{stockName}</h3>
-        <p className="text-sm leading-5 text-zinc-500">{stockCode}</p>
-        {currentPrice && (
-          <p className="text-sm text-gray-600">当前价格: ¥{currentPrice}</p>
+    <div className="bg-white rounded-xl border border-solid border-neutral-200 h-full max-h-[calc(100vh-200px)] overflow-y-auto">
+      <div className="p-4">
+        <h2 className="mb-4 text-xl font-semibold text-black">
+          AI洞察分析
+        </h2>
+        
+        {/* 紧凑的股票信息条 */}
+        <div className="mb-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
+          <div className="flex justify-between items-center">
+            <div className="flex-1 min-w-0">
+              <h3 className="text-base font-semibold text-gray-900 truncate">{stockName}</h3>
+              <p className="text-sm text-gray-600">{stockCode}</p>
+            </div>
+            {currentPrice && (
+              <div className="text-right ml-4">
+                <p className="text-lg font-bold text-blue-600">¥{currentPrice}</p>
+                <p className="text-xs text-gray-500">当前价格</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 如果有AI分析结果，显示详细分析 */}
+        {analysisResult ? (
+          <div className="space-y-4">
+            {/* AI评分概览卡片 */}
+            <div className="p-4 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="w-16 h-16 bg-white rounded-full border-4 border-green-300 flex items-center justify-center shadow-sm">
+                    <span className="text-xl font-bold text-green-600">{analysisResult.overall_score}</span>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">AI综合评分</p>
+                    <p className="text-lg font-semibold text-gray-900">{analysisResult.recommendation}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-gray-600">置信度</p>
+                  <p className="text-base font-medium text-gray-900">{analysisResult.confidence_level}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* AI分析详情 */}
+            <AIAnalysisDisplay
+              analysis={analysisResult}
+              stockCode={stockCode}
+              stockName={stockName}
+              currentPrice={currentPrice}
+              className="text-base"
+            />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* 分析控制区域 - 紧凑布局 */}
+            {hasAnyLLMConfigured && selectedStock && (
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-sm text-blue-700 mb-2">选择分析模型</p>
+                <div className="flex gap-2">
+                  <div className="flex-grow">
+                    <LLMSelector
+                      availableProviders={llmProviders}
+                      selectedProvider={selectedLLM}
+                      onProviderChange={setSelectedLLM}
+                      disabled={isAnalyzing}
+                      className="text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAnalyzeStock}
+                    disabled={isAnalyzing}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                      isAnalyzing
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {isAnalyzing ? '分析中...' : '获取AI分析'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 错误信息 */}
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+
+            {/* 默认AI评分显示 - 紧凑版 */}
+            <div className="p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-center space-x-6">
+                <div className="text-center">
+                  <div className="w-20 h-20 text-2xl font-bold text-gray-400 rounded-full border-4 border-gray-300 bg-white flex items-center justify-center shadow-sm">
+                    --
+                  </div>
+                  <p className="text-sm font-medium text-gray-600 mt-2">AI综合评分</p>
+                </div>
+                <div className="text-center">
+                  <div className="px-4 py-2 text-base font-semibold text-white bg-gray-400 rounded-lg shadow-sm">
+                    等待分析
+                  </div>
+                  <p className="text-xs text-gray-600 mt-2">投资建议</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 分析模块网格 - 优化间距 */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+              {defaultAnalysisSections.map((section, index) => (
+                <div key={index} className="p-3 bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                  <div className="flex items-start space-x-2">
+                    <div 
+                      className="flex-shrink-0 mt-0.5"
+                      dangerouslySetInnerHTML={{ __html: section.icon }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-semibold text-gray-900 mb-1">
+                        {section.title}
+                      </h4>
+                      <p className="text-gray-600 text-xs leading-relaxed">
+                        {section.content}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* AI配置状态提示 - 紧凑版 */}
+            {!aiStatus.hasConfigurations ? (
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <svg className="w-4 h-4 text-yellow-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-yellow-800">需要配置AI服务</p>
+                    <p className="text-xs text-yellow-700 mt-1">请在用户设置中配置AI API密钥以启用分析功能</p>
+                  </div>
+                </div>
+              </div>
+            ) : aiStatus.enabledCount === 0 ? (
+              <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <svg className="w-4 h-4 text-orange-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-orange-800">需要启用AI模型</p>
+                    <p className="text-xs text-orange-700 mt-1">已配置但未启用，请在设置中启用AI配置</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-green-800">AI服务就绪</p>
+                    <p className="text-xs text-green-600 mt-1">{aiStatus.enabledCount}/{aiStatus.totalCount} 个模型已启用</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
-
-      {/* 如果有AI分析结果，显示详细分析 */}
-      {analysisResult ? (
-        <div className="mb-4">
-          <AIAnalysisDisplay
-            analysis={analysisResult}
-            stockCode={stockCode}
-            stockName={stockName}
-            currentPrice={currentPrice}
-            className="text-sm"
-          />
-        </div>
-      ) : (
-        <>
-          {/* LLM选择器和分析按钮 */}
-          {hasAnyLLMConfigured && selectedStock && (
-            <div className="mb-6 space-y-4">
-              <LLMSelector
-                availableProviders={llmProviders}
-                selectedProvider={selectedLLM}
-                onProviderChange={setSelectedLLM}
-                disabled={isAnalyzing}
-                className="text-sm"
-              />
-              
-              <button
-                onClick={handleAnalyzeStock}
-                disabled={isAnalyzing}
-                className={`w-full py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                  isAnalyzing
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
-              >
-                {isAnalyzing ? '分析中...' : '获取AI分析'}
-              </button>
-            </div>
-          )}
-
-          {/* 错误信息 */}
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-              <p className="text-sm text-red-600">{error}</p>
-            </div>
-          )}
-
-          {/* 默认AI评分显示 */}
-          <div className="flex flex-col items-center mb-6">
-            <div className="mb-3 w-24 h-24 text-2xl font-bold leading-9 text-black rounded-full border-4 border-gray-300 border-solid bg-neutral-100 flex items-center justify-center">
-              --
-            </div>
-            <p className="text-base leading-6 text-center text-zinc-500">
-              AI综合评分
-            </p>
-          </div>
-
-          <div className="mb-6 w-24 h-10 text-base font-semibold leading-6 text-white bg-gray-400 rounded-md flex items-center justify-center">
-            等待分析
-          </div>
-
-          {/* 默认分析部分 */}
-          {defaultAnalysisSections.map((section, index) => (
-            <AnalysisSection key={index} {...section} />
-          ))}
-
-          {/* 智能配置提示 */}
-          {!aiStatus.hasConfigurations ? (
-            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-              <p className="text-sm text-yellow-700">
-                请先在用户设置中配置AI API密钥以启用AI分析功能。
-              </p>
-            </div>
-          ) : aiStatus.enabledCount === 0 ? (
-            <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-md">
-              <p className="text-sm text-orange-700">
-                已配置AI模型但未启用，请在用户设置中启用至少一个AI配置。
-              </p>
-            </div>
-          ) : (
-            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
-              <div className="flex items-center space-x-2">
-                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-sm text-green-700">
-                  已配置AI模型，可以开始分析。
-                </p>
-              </div>
-              <p className="text-xs text-green-600 mt-1">
-                {aiStatus.enabledCount}/{aiStatus.totalCount} 个模型已启用
-              </p>
-            </div>
-          )}
-        </>
-      )}
-    </aside>
+    </div>
   );
 }; 

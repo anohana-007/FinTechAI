@@ -1,17 +1,8 @@
-import os
 import time
 import tushare as ts
 import pandas as pd
 from datetime import datetime
-from dotenv import load_dotenv
 from typing import Optional, Dict, Any
-
-# 加载.env文件
-load_dotenv()
-
-# Tushare API Token配置
-# 注意：需要注册tushare账号并获取token
-TUSHARE_TOKEN = os.getenv('TUSHARE_TOKEN', '')
 
 # 全局变量用于缓存股票列表
 _cached_stock_list = None
@@ -33,8 +24,6 @@ def init_tushare(user_config: Optional[Dict[str, Any]] = None):
     token = None
     if user_config and user_config.get('tushare_token'):
         token = user_config['tushare_token']
-    else:
-        token = TUSHARE_TOKEN
     
     if not token:
         print(f"警告: 未设置TUSHARE_TOKEN。用户配置token: {'有' if user_config and user_config.get('tushare_token') else '无'}")
@@ -206,7 +195,7 @@ def get_stock_price(stock_code, user_config: Optional[Dict[str, Any]] = None):
         # 初始化tushare
         if not init_tushare(user_config):
             # 如果初始化失败，使用模拟数据（实际应用中应处理错误）
-            print("使用模拟数据...")
+            print("⚠️ Tushare Token无效，使用模拟数据...")
             return _get_mock_price(stock_code)
         
         # 创建tushare pro API接口
@@ -222,14 +211,18 @@ def get_stock_price(stock_code, user_config: Optional[Dict[str, Any]] = None):
             # 如果今天没有数据，尝试获取最近的交易日数据
             df = pro.daily(ts_code=stock_code)
             if df.empty:
-                return None
+                print(f"❌ 无法获取股票 {stock_code} 的历史数据")
+                return _get_mock_price(stock_code)
             
         # 返回收盘价
-        return float(df.iloc[0]['close'])
+        real_price = float(df.iloc[0]['close'])
+        print(f"✅ 获取真实股价: {stock_code} = ¥{real_price}")
+        return real_price
     
     except Exception as e:
         print(f"获取股票价格时出错: {e}")
         # 在API调用失败时使用模拟数据
+        print(f"⚠️ API调用失败，使用模拟数据: {stock_code}")
         return _get_mock_price(stock_code)
 
 def _get_mock_price(stock_code):
@@ -247,4 +240,80 @@ def _get_mock_price(stock_code):
     base_price = (code_num % 100) + 10  # 基础价格在10-110之间
     variation = (hash(f"{stock_code}_{time.time()}") % 100) / 1000  # 小变化
     
-    return round(base_price + variation, 2) 
+    return round(base_price + variation, 2)
+
+def validate_tushare_token(token: str, user_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    验证Tushare Token的有效性
+    
+    参数:
+    token (str): Tushare API Token
+    user_config (dict, optional): 用户配置
+    
+    返回:
+    dict: 验证结果 {'valid': bool, 'message': str, 'details': dict}
+    """
+    if not token or not token.strip():
+        return {
+            'valid': False,
+            'message': 'Token不能为空',
+            'details': {}
+        }
+    
+    try:
+        # 设置token
+        ts.set_token(token.strip())
+        
+        # 创建API接口
+        pro = ts.pro_api()
+        
+        # 尝试调用一个简单的API来验证token
+        # 使用stock_basic API，获取少量数据
+        print("🔍 正在验证Tushare Token...")
+        df = pro.stock_basic(exchange='SSE', list_status='L', fields='ts_code,symbol,name')
+        
+        if df is not None and not df.empty:
+            print(f"✅ Tushare Token验证成功，获取到 {len(df)} 条股票数据")
+            return {
+                'valid': True,
+                'message': 'Token验证成功',
+                'details': {
+                    'test_api': 'stock_basic',
+                    'sample_count': len(df),
+                    'sample_stocks': df.head(3).to_dict('records') if len(df) > 0 else []
+                }
+            }
+        else:
+            print("⚠️ Tushare Token有效但API返回空数据")
+            return {
+                'valid': False,
+                'message': 'Token有效但API返回空数据',
+                'details': {'test_api': 'stock_basic'}
+            }
+            
+    except Exception as e:
+        error_message = str(e)
+        print(f"❌ Tushare Token验证失败: {error_message}")
+        
+        # 根据错误信息提供更具体的建议
+        if '请求过于频繁' in error_message:
+            suggestion = '请求过于频繁，请稍后重试'
+        elif 'token' in error_message.lower() or '您的token不对' in error_message:
+            suggestion = 'Token格式错误或已失效，请检查Token是否正确'
+        elif '权限不足' in error_message:
+            suggestion = '账户权限不足，请检查Tushare账户状态'
+        elif '积分不足' in error_message:
+            suggestion = '账户积分不足，请充值或升级账户'
+        elif 'timeout' in error_message.lower() or 'connection' in error_message.lower():
+            suggestion = '网络连接超时，请检查网络连接或代理设置'
+        else:
+            suggestion = '网络错误或服务暂时不可用，请稍后重试'
+        
+        return {
+            'valid': False,
+            'message': f'Token验证失败: {suggestion}',
+            'details': {
+                'error': error_message,
+                'suggestion': suggestion
+            }
+        } 

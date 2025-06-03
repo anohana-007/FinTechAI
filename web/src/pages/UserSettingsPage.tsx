@@ -5,9 +5,10 @@ import {
   fetchUserSettings, 
   fetchUserSettingsDetail,
   updateUserSettings, 
-  changePassword 
+  changePassword,
+  validateTushareToken
 } from '../services/apiService';
-import { UserSettingsData, ChangePasswordRequest, AIProviderConfig, ProxySettings } from '../types/types';
+import { UserSettingsData, ChangePasswordRequest, AIProviderConfig, ProxySettings, TushareTokenValidationResult } from '../types/types';
 import { AIConfigurationPanel } from '../components/AIConfigurationPanel';
 import { ProxyConfigurationPanel } from '../components/ProxyConfigurationPanel';
 
@@ -45,6 +46,10 @@ const UserSettingsPage: React.FC = () => {
     new_password: '',
   });
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+
+  // Token验证相关状态
+  const [tokenValidation, setTokenValidation] = useState<TushareTokenValidationResult | null>(null);
+  const [isValidatingToken, setIsValidatingToken] = useState(false);
 
   // 加载用户设置
   useEffect(() => {
@@ -167,8 +172,10 @@ const UserSettingsPage: React.FC = () => {
       // 准备要保存的设置
       const settingsToSend: UserSettingsData = {};
       
-      // 基础设置
-      if (settings.tushare_token && settings.tushare_token !== '[已设置]') {
+      // 基础设置 - 修复Token处理逻辑
+      if (settings.tushare_token && 
+          settings.tushare_token !== '[已设置]' && 
+          !settings.tushare_token.includes('*')) {  // 添加掩码检查
         settingsToSend.tushare_token = settings.tushare_token;
       }
       
@@ -192,10 +199,28 @@ const UserSettingsPage: React.FC = () => {
         settingsToSend.email_smtp_password = settings.email_smtp_password;
       }
       
-      // AI配置
+      // AI配置 - 修复掩码处理逻辑
       if (settings.ai_configurations && Object.keys(settings.ai_configurations).length > 0) {
         console.log('AI配置数据:', settings.ai_configurations); // 添加调试
-        settingsToSend.ai_configurations = settings.ai_configurations;
+        
+        // 过滤掉包含掩码的AI配置
+        const filteredAIConfigurations: { [providerId: string]: AIProviderConfig } = {};
+        
+        for (const [providerId, config] of Object.entries(settings.ai_configurations)) {
+          // 检查API密钥是否被掩码了
+          if (config.api_key && 
+              !config.api_key.includes('*') && 
+              config.api_key.trim() !== '') {
+            filteredAIConfigurations[providerId] = config;
+          } else if (config.api_key && config.api_key.includes('*')) {
+            console.log(`跳过掩码的AI配置: ${providerId}`);
+            // 如果是掩码配置，跳过不发送到后端
+          }
+        }
+        
+        if (Object.keys(filteredAIConfigurations).length > 0) {
+          settingsToSend.ai_configurations = filteredAIConfigurations;
+        }
       } else {
         console.log('没有AI配置数据或数据为空'); // 添加调试
       }
@@ -270,6 +295,94 @@ const UserSettingsPage: React.FC = () => {
       setError(error instanceof Error ? error.message : '修改密码失败');
     } finally {
       setChangingPassword(false);
+    }
+  };
+
+  // 验证Tushare Token
+  const handleValidateToken = async () => {
+    const token = settings.tushare_token?.trim();
+    if (!token) {
+      setTokenValidation({
+        valid: false,
+        message: 'Token不能为空',
+        details: {}
+      });
+      return;
+    }
+
+    // 检查Token是否被掩码了
+    if (token.includes('***') || token.includes('*') || token === '[已设置]') {
+      setTokenValidation({
+        valid: false,
+        message: '检测到Token已被掩码处理，请重新输入完整的Token后再进行验证',
+        details: { 
+          suggestion: '为了安全，已保存的Token会被掩码显示。如需验证，请重新输入完整的Token。' 
+        }
+      });
+      return;
+    }
+
+    setIsValidatingToken(true);
+    setTokenValidation(null);
+
+    try {
+      const result = await validateTushareToken(token);
+      setTokenValidation(result);
+    } catch (error) {
+      setTokenValidation({
+        valid: false,
+        message: error instanceof Error ? error.message : '验证失败',
+        details: { error: error instanceof Error ? error.message : '未知错误' }
+      });
+    } finally {
+      setIsValidatingToken(false);
+    }
+  };
+
+  // 渲染验证状态
+  const renderTokenValidationStatus = () => {
+    if (!tokenValidation) return null;
+
+    if (tokenValidation.valid) {
+      return (
+        <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium text-green-800">{tokenValidation.message}</p>
+              {tokenValidation.details.sample_count && (
+                <p className="text-xs text-green-600 mt-1">
+                  成功获取到 {tokenValidation.details.sample_count} 条股票数据
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    } else {
+      return (
+        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium text-red-800">{tokenValidation.message}</p>
+              {tokenValidation.details.suggestion && (
+                <p className="text-xs text-red-600 mt-1">
+                  建议：{tokenValidation.details.suggestion}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
     }
   };
 
@@ -378,19 +491,66 @@ const UserSettingsPage: React.FC = () => {
                     <label htmlFor="tushare_token" className="block text-sm font-medium text-gray-700">
                       Tushare Token
                     </label>
-                    <input
-                      type="text"
-                      name="tushare_token"
-                      id="tushare_token"
-                      value={settings.tushare_token}
-                      onChange={handleBasicSettingsChange}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                      placeholder={settings.tushare_token ? "当前已配置（显示已掩码）" : "请输入您的Tushare Token"}
-                    />
+                    <div className="mt-1 flex space-x-2">
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          name="tushare_token"
+                          id="tushare_token"
+                          value={settings.tushare_token}
+                          onChange={handleBasicSettingsChange}
+                          className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          placeholder={settings.tushare_token ? "当前已配置（显示已掩码）" : "请输入您的Tushare Token"}
+                        />
+                        {/* 掩码状态提示 */}
+                        {settings.tushare_token && (settings.tushare_token.includes('***') || settings.tushare_token.includes('*') || settings.tushare_token === '[已设置]') && (
+                          <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                            <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded">
+                              已掩码
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleValidateToken}
+                        disabled={
+                          isValidatingToken || 
+                          !settings.tushare_token?.trim() || 
+                          settings.tushare_token.includes('***') || 
+                          settings.tushare_token.includes('*') || 
+                          settings.tushare_token === '[已设置]'
+                        }
+                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                      >
+                        {isValidatingToken ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            验证中...
+                          </>
+                        ) : (
+                          '验证Token'
+                        )}
+                      </button>
+                    </div>
+                    
+                    {/* 验证状态显示 */}
+                    {renderTokenValidationStatus()}
+                    
                     <p className="mt-2 text-sm text-gray-500">
                       用于获取股票数据，请在 <a href="https://tushare.pro" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500">Tushare官网</a> 注册获取
                       {settings.tushare_token && settings.tushare_token.includes('*') && (
-                        <span className="block text-green-600 mt-1">✓ 当前已配置Token</span>
+                        <span className="block text-green-600 mt-1">
+                          ✓ 当前已配置Token（出于安全考虑，显示为掩码格式）
+                        </span>
+                      )}
+                      {settings.tushare_token && (settings.tushare_token.includes('***') || settings.tushare_token.includes('*') || settings.tushare_token === '[已设置]') && (
+                        <span className="block text-blue-600 mt-1">
+                          💡 如需验证Token，请重新输入完整的Token值
+                        </span>
                       )}
                     </p>
                   </div>

@@ -180,7 +180,9 @@ export const AIAnalysisDisplay: React.FC<AIAnalysisDisplayProps> = ({
                 </svg>
                 技术面分析
               </h5>
-              <p className="text-sm text-gray-700 leading-relaxed">{analysis.technical_summary}</p>
+              <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
+                {analysis.technical_summary}
+              </div>
             </div>
           )}
 
@@ -192,7 +194,9 @@ export const AIAnalysisDisplay: React.FC<AIAnalysisDisplayProps> = ({
                 </svg>
                 基本面分析
               </h5>
-              <p className="text-sm text-gray-700 leading-relaxed">{analysis.fundamental_summary}</p>
+              <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
+                {analysis.fundamental_summary}
+              </div>
             </div>
           )}
 
@@ -204,7 +208,9 @@ export const AIAnalysisDisplay: React.FC<AIAnalysisDisplayProps> = ({
                 </svg>
                 市场情绪分析
               </h5>
-              <p className="text-sm text-gray-700 leading-relaxed">{analysis.sentiment_summary}</p>
+              <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">
+                {analysis.sentiment_summary}
+              </div>
             </div>
           )}
         </div>

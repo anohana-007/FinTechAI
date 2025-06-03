@@ -21,9 +21,10 @@ def _get_encryption_key() -> bytes:
     """
     获取加密密钥
     
-    从环境变量获取主密钥，如果不存在则生成一个
+    使用固定的主密钥生成加密密钥
     """
-    master_key = os.getenv('ENCRYPTION_MASTER_KEY', 'default-master-key-change-in-production')
+    # 使用固定的主密钥（与项目其他部分保持一致，使用数据库而非环境变量）
+    master_key = 'fintech-ai-encryption-master-key-2024-secure'
     
     # 使用PBKDF2从主密钥派生加密密钥
     kdf = PBKDF2HMAC(

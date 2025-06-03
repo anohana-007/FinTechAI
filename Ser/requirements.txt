@@ -2,7 +2,6 @@ flask
 flask-cors
 tushare
 pandas
-python-dotenv
 apscheduler
 requests
 werkzeug

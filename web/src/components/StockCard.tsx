@@ -25,47 +25,50 @@ export const StockCard: React.FC<StockCardProps> = ({ stock, isSelected, onClick
   
   return (
     <article 
-      className={`relative px-4 py-5 mb-4 rounded-lg border border-solid bg-neutral-100 border-neutral-200 h-[167px] w-[573px] hover:shadow-md transition-shadow cursor-pointer ${
+      className={`relative p-3 rounded-lg border border-solid bg-neutral-100 border-neutral-200 w-full min-h-[120px] hover:shadow-md transition-shadow cursor-pointer ${
         isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''
       }`}
       onClick={() => onClick(stock)}
     >
-      <div className="absolute left-[17px] top-[19px]">
-        <h3 className="mb-2 text-lg font-semibold leading-7 text-black">{stock_name}</h3>
-        <p className="mb-3.5 text-sm leading-5 text-zinc-500">{stock_code}</p>
-        <p className="text-sm leading-5 text-zinc-500">价格提醒</p>
+      {/* 股票基本信息 */}
+      <div className="flex justify-between items-start mb-2">
+        <div className="flex-1 min-w-0 pr-3">
+          <h3 className="text-base font-semibold leading-5 text-black truncate">{stock_name}</h3>
+          <p className="text-xs leading-4 text-zinc-500 mt-1">{stock_code}</p>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className={`text-lg font-semibold leading-5 ${
+            priceChangeStatus === 'positive' ? 'text-red-500' : 
+            priceChangeStatus === 'negative' ? 'text-green-500' : 'text-black'
+          }`}>
+            {formattedPrice}
+          </p>
+          {stock.price_change && (
+            <p className="text-xs font-medium leading-4 mt-1">
+              {stock.price_change}
+            </p>
+          )}
+        </div>
       </div>
-      <div className="absolute text-right right-[17px] top-[17px]">
-        <p className={`mb-px text-xl font-semibold leading-8 ${
-          priceChangeStatus === 'positive' ? 'text-red-500' : 
-          priceChangeStatus === 'negative' ? 'text-green-500' : 'text-black'
-        }`}>
-          {formattedPrice}
-        </p>
-        <p className="mb-3.5 text-sm font-medium leading-5">
-          {stock.price_change || '-'}
-        </p>
-        <p className="text-sm leading-5 text-zinc-500">
-          <span className="mr-2">上限: {formattedUpperThreshold}</span>
-          <span>| 下限: {formattedLowerThreshold}</span>
-        </p>
+      
+      {/* 价格阈值信息 */}
+      <div className="mb-2">
+        <p className="text-xs text-zinc-500 mb-1">价格提醒</p>
+        <div className="flex flex-wrap gap-1 text-xs">
+          <span className="bg-red-50 px-2 py-0.5 rounded text-red-700 text-xs">
+            上限: {formattedUpperThreshold}
+          </span>
+          <span className="bg-green-50 px-2 py-0.5 rounded text-green-700 text-xs">
+            下限: {formattedLowerThreshold}
+          </span>
+        </div>
       </div>
-      <div className="absolute flex gap-2 bottom-[17px] right-[17px]">
-        {onDelete && (
-          <button 
-            className="text-sm font-medium leading-5 text-white bg-red-500 hover:bg-red-600 rounded-md cursor-pointer h-[37px] px-3 transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(stock);
-            }}
-            title="删除股票"
-          >
-            删除
-          </button>
-        )}
+      
+      {/* 操作按钮 */}
+      <div className="flex gap-1.5 justify-end">
         {onEdit && (
           <button 
-            className="text-sm font-medium leading-5 text-white bg-green-500 hover:bg-green-600 rounded-md cursor-pointer h-[37px] px-3 transition-colors"
+            className="text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded px-2 py-1 transition-colors"
             onClick={(e) => {
               e.stopPropagation();
               onEdit(stock);
@@ -73,6 +76,18 @@ export const StockCard: React.FC<StockCardProps> = ({ stock, isSelected, onClick
             title="编辑阈值"
           >
             编辑
+          </button>
+        )}
+        {onDelete && (
+          <button 
+            className="text-xs font-medium text-white bg-red-500 hover:bg-red-600 rounded px-2 py-1 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(stock);
+            }}
+            title="删除股票"
+          >
+            删除
           </button>
         )}
       </div>
