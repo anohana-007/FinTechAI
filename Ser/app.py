@@ -766,7 +766,8 @@ def analyze_stock_manually():
             stock_code=stock_code,
             current_price=current_price,
             llm_preference=llm_preference,
-            user_config=user_config
+            user_config=user_config,
+            additional_data={"stock_name": stock_name}  # 添加股票名称
         )
         
         app.logger.info(f"AI分析服务调用完成")

@@ -95,7 +95,7 @@ def check_thresholds():
                             alert.get('triggered_price', alert.get('current_price', 0)), 
                             'openai',  # 默认使用openai，也可以从用户配置读取
                             user_config,
-                            {'breakout_direction': 'UP'}
+                            {'breakout_direction': 'UP', 'stock_name': alert.get('stock_name', '未知')}
                         )
                         
                         # 如果AI分析成功，保存完整的结构化结果
@@ -166,7 +166,7 @@ def check_thresholds():
                             alert.get('triggered_price', alert.get('current_price', 0)), 
                             'openai',  # 默认使用openai，也可以从用户配置读取
                             user_config,
-                            {'breakout_direction': 'DOWN'}
+                            {'breakout_direction': 'DOWN', 'stock_name': alert.get('stock_name', '未知')}
                         )
                         
                         # 如果AI分析成功，保存完整的结构化结果
@@ -282,7 +282,7 @@ def check_and_get_alerts():
                         alert.get('triggered_price', alert.get('current_price', 0)), 
                         'openai',  # 默认使用openai，也可以从用户配置读取
                         user_config,
-                        {'breakout_direction': alert['direction']}
+                        {'breakout_direction': alert['direction'], 'stock_name': alert.get('stock_name', '未知')}
                     )
                     
                     # 如果AI分析成功，保存完整的结构化结果

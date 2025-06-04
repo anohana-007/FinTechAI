@@ -171,22 +171,6 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ selectedStock, ale
           AI洞察分析
         </h2>
         
-        {/* 紧凑的股票信息条 */}
-        <div className="mb-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
-          <div className="flex justify-between items-center">
-            <div className="flex-1 min-w-0">
-              <h3 className="text-base font-semibold text-gray-900 truncate">{stockName}</h3>
-              <p className="text-sm text-gray-600">{stockCode}</p>
-            </div>
-            {currentPrice && (
-              <div className="text-right ml-4">
-                <p className="text-lg font-bold text-blue-600">¥{currentPrice}</p>
-                <p className="text-xs text-gray-500">当前价格</p>
-              </div>
-            )}
-          </div>
-        </div>
-
         {/* 如果有AI分析结果，显示详细分析 */}
         {analysisResult ? (
           <div className="space-y-4">

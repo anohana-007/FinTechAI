@@ -464,3 +464,229 @@ def search_stocks_by_keyword(user_tushare_token: str, keyword: str, limit: int =
             'message': f'搜索失败: {error_message}',
             'error': 'UNKNOWN_SEARCH_ERROR'
         } 
+
+def get_akshare_fundamental_data(stock_code: str) -> dict | None:
+    """
+    使用 AkShare 获取股票基本面数据
+    
+    参数:
+    stock_code (str): 股票代码，支持 '600036.SH' 或 '600036' 格式
+    
+    返回:
+    dict | None: 包含基本面指标的字典，获取失败时返回None
+    
+    返回数据格式:
+    {
+        "pe_ttm": float,                # 市盈率(TTM)
+        "pb": float,                    # 市净率
+        "eps_ttm": float,              # 每股收益(TTM)
+        "roe_ttm": float,              # 净资产收益率(TTM)
+        "total_mv": float,             # 总市值(万元)
+        "circulation_mv": float,       # 流通市值(万元)
+        "revenue_yoy_growth": float,   # 营收同比增长率
+        "net_profit_yoy_growth": float, # 净利润同比增长率
+        "dividend_yield": float,       # 股息率
+        "gross_profit_margin": float,  # 毛利率
+        "net_profit_margin": float,    # 净利率
+    }
+    """
+    try:
+        # 标准化股票代码：移除 .SH/.SZ 后缀，保留纯数字
+        clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+        
+        print(f"🔍 AkShare 获取基本面数据: {stock_code} -> {clean_code}")
+        
+        # 初始化返回数据
+        fundamental_data = {
+            "pe_ttm": None,
+            "pb": None,
+            "eps_ttm": None,
+            "roe_ttm": None,
+            "total_mv": None,
+            "circulation_mv": None,
+            "revenue_yoy_growth": None,
+            "net_profit_yoy_growth": None,
+            "dividend_yield": None,
+            "gross_profit_margin": None,
+            "net_profit_margin": None,
+        }
+        
+        # 尝试多种数据获取方式
+        data_sources_tried = []
+        
+        # 方法1: 尝试从股票基本信息中获取部分指标
+        try:
+            print(f"📋 方法1: 使用 stock_info_a_code_name 获取基础信息...")
+            stock_info_df = ak.stock_info_a_code_name()
+            
+            if not stock_info_df.empty and 'code' in stock_info_df.columns:
+                stock_match = stock_info_df[stock_info_df['code'] == clean_code]
+                
+                if not stock_match.empty:
+                    print(f"✅ 在股票列表中找到 {clean_code}")
+                    data_sources_tried.append("股票基础信息")
+                else:
+                    print(f"⚠️ 股票代码 {clean_code} 在A股列表中未找到")
+            
+        except Exception as e:
+            print(f"❌ 方法1失败: {e}")
+        
+        # 方法2: 尝试获取实时行情数据中的部分指标
+        try:
+            print(f"📈 方法2: 使用历史数据接口获取基础指标...")
+            # 使用更简单的历史数据接口
+            from datetime import datetime, timedelta
+            
+            # 获取最近的交易日期
+            end_date = datetime.now().strftime('%Y%m%d')
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+            
+            # 尝试获取历史数据
+            hist_data = ak.stock_zh_a_hist(symbol=clean_code, period="daily", start_date=start_date, end_date=end_date, adjust="")
+            
+            if not hist_data.empty:
+                print(f"✅ 历史数据获取成功，共 {len(hist_data)} 条记录")
+                data_sources_tried.append("历史价格数据")
+                
+                # 从历史数据中可以计算一些基础指标（如果有成交量等信息）
+                latest_price = hist_data.iloc[-1]['收盘'] if '收盘' in hist_data.columns else None
+                if latest_price:
+                    print(f"✅ 获取最新价格: {latest_price}")
+            
+        except Exception as e:
+            print(f"❌ 方法2失败: {e}")
+        
+        # 方法3: 尝试获取财务分析指标（原始方法）
+        try:
+            print(f"📊 方法3: 使用 stock_financial_analysis_indicator...")
+            financial_df = ak.stock_financial_analysis_indicator(symbol=clean_code)
+            
+            if not financial_df.empty:
+                print(f"✅ 财务分析指标获取成功，共 {len(financial_df)} 行数据")
+                print(f"📋 可用列名: {list(financial_df.columns)}")
+                data_sources_tried.append("财务分析指标")
+                
+                # 获取最新一行数据（通常是最新的报告期）
+                latest_data = financial_df.iloc[0]
+                
+                # 根据实际的AkShare列名映射
+                indicator_mapping = {
+                    'pe_ttm': ['市盈率(TTM)', '动态市盈率', '市盈率'],
+                    'pb': ['市净率', '市净率(LF)'],
+                    'eps_ttm': ['摊薄每股收益(元)', '加权每股收益(元)', '基本每股收益(元)', '每股收益_调整后(元)'],
+                    'roe_ttm': ['净资产收益率加权(%)', '净资产收益率', '净资产收益率摊薄(%)'],
+                    'revenue_yoy_growth': ['营业总收入同比增长率(%)', '总营收同比增长(%)', '营业收入同比增长率(%)'],
+                    'net_profit_yoy_growth': ['归母净利润同比增长率(%)', '净利润同比增长率(%)', '归属于上市公司股东的净利润同比增长率(%)'],
+                    'dividend_yield': ['股息率(%)', '股息率'],
+                    'gross_profit_margin': ['销售毛利率(%)', '毛利率(%)', '毛利率'],
+                    'net_profit_margin': ['销售净利率(%)', '净利率(%)', '净利率', '归属于上市公司股东的净利润率(%)']
+                }
+                
+                # 遍历映射，尝试从DataFrame中提取数据
+                for key, possible_cols in indicator_mapping.items():
+                    value = None
+                    for col_name in possible_cols:
+                        if col_name in latest_data.index:
+                            raw_value = latest_data[col_name]
+                            value = _parse_financial_value(raw_value)
+                            if value is not None:
+                                print(f"✅ {key}: {value} (来源列: {col_name})")
+                                break
+                    fundamental_data[key] = value
+                
+            else:
+                print("⚠️ 财务分析指标返回空数据")
+                
+        except Exception as e:
+            print(f"❌ 方法3失败: {e}")
+        
+        # 检查是否获取到任何有效数据
+        valid_data_count = sum(1 for v in fundamental_data.values() if v is not None)
+        
+        if valid_data_count == 0:
+            print(f"❌ 所有数据获取方法都失败，未能获取到 {stock_code} 的任何基本面数据")
+            print(f"📝 已尝试的数据源: {', '.join(data_sources_tried) if data_sources_tried else '无'}")
+            return None
+        else:
+            print(f"✅ 成功获取 {stock_code} 的 {valid_data_count} 项基本面指标")
+            print(f"📝 数据来源: {', '.join(data_sources_tried)}")
+            return fundamental_data
+            
+    except Exception as e:
+        print(f"❌ AkShare 基本面数据获取异常: {e}")
+        return None
+
+def _parse_financial_value(raw_value) -> float | None:
+    """
+    解析财务指标数值，处理各种格式
+    
+    参数:
+    raw_value: 原始值，可能是字符串、数字或其他格式
+    
+    返回:
+    float | None: 解析后的数值，无法解析时返回None
+    """
+    try:
+        if raw_value is None or raw_value == '' or str(raw_value).strip() == '':
+            return None
+        
+        # 转换为字符串处理
+        str_value = str(raw_value).strip()
+        
+        # 处理常见的无效值
+        if str_value.lower() in ['--', '-', 'nan', 'null', 'none', 'n/a', '暂无数据']:
+            return None
+        
+        # 移除百分号并转换为小数
+        if '%' in str_value:
+            str_value = str_value.replace('%', '').strip()
+            return float(str_value) / 100.0
+        
+        # 移除其他可能的单位标识
+        str_value = str_value.replace(',', '').replace('万', '').replace('亿', '').replace('元', '')
+        
+        # 尝试直接转换为浮点数
+        return float(str_value)
+        
+    except (ValueError, TypeError):
+        return None
+
+def _parse_market_value(raw_value) -> float | None:
+    """
+    解析市值数据，统一转换为万元单位
+    
+    参数:
+    raw_value: 原始市值，可能包含万元、亿元等单位
+    
+    返回:
+    float | None: 以万元为单位的市值，无法解析时返回None
+    """
+    try:
+        if raw_value is None or raw_value == '' or str(raw_value).strip() == '':
+            return None
+        
+        str_value = str(raw_value).strip()
+        
+        # 处理无效值
+        if str_value.lower() in ['--', '-', 'nan', 'null', 'none', 'n/a', '暂无数据']:
+            return None
+        
+        # 移除逗号
+        str_value = str_value.replace(',', '')
+        
+        # 检查单位并转换
+        if '亿' in str_value:
+            # 亿元转万元 (1亿 = 10000万)
+            numeric_part = str_value.replace('亿', '').replace('元', '').strip()
+            return float(numeric_part) * 10000
+        elif '万' in str_value:
+            # 已经是万元
+            numeric_part = str_value.replace('万', '').replace('元', '').strip()
+            return float(numeric_part)
+        else:
+            # 假设是元，转换为万元
+            numeric_part = str_value.replace('元', '').strip()
+            return float(numeric_part) / 10000
+            
+    except (ValueError, TypeError):
+        return None 

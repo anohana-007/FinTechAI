@@ -6,8 +6,10 @@ AI连通性测试服务
 import requests
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
+import google.generativeai as genai
+import os
 
 logger = logging.getLogger('ai_connectivity_service')
 
@@ -308,193 +310,208 @@ def _test_deepseek_connectivity(model: str, base_url: str, api_key: str, proxies
         }
 
 def _test_google_connectivity(model: str, base_url: str, api_key: str, proxies: Optional[Dict[str, str]]) -> Dict[str, Any]:
-    """测试Google Gemini API连通性"""
-    try:
-        logger.info(f"开始测试Google Gemini API连通性: {model}")
-        
-        # Google Gemini API格式
-        if not base_url:
-            base_url = 'https://generativelanguage.googleapis.com/v1beta/models/'
-        
-        if not base_url.endswith('/'):
-            base_url += '/'
-        
-        # 定义回退模型配置（如果用户配置的模型失败）
-        fallback_models = [
-            model,  # 用户配置的模型
-            "gemini-pro",  # 稳定版
-            "gemini-1.5-pro",  # 推荐版本
-            "gemini-1.5-flash",  # 快速版本
-        ]
-        
-        # 去重，保持顺序
-        unique_models = []
-        for m in fallback_models:
-            if m not in unique_models:
-                unique_models.append(m)
-        
-        last_error = None
-        
-        # 尝试不同的模型配置
-        for test_model in unique_models:
-            logger.info(f"尝试模型: {test_model}")
-            
-            url = f"{base_url}{test_model}:generateContent?key={api_key}"
-            
-            logger.info(f"构建的URL: {url}")
-            logger.info(f"使用的模型: {test_model}")
-            
-            headers = {
-                'Content-Type': 'application/json'
-            }
-            
-            payload = {
-                'contents': [{
-                    'parts': [{
-                        'text': 'Hello, this is a connectivity test.'
-                    }]
-                }],
-                'generationConfig': {
-                    'maxOutputTokens': 10,
-                    'temperature': 0.1
-                }
-            }
-            
-            try:
-                response = requests.post(
-                    url, 
-                    headers=headers, 
-                    json=payload, 
-                    proxies=proxies,
-                    timeout=30
-                )
-                
-                logger.info(f"Google API响应状态码: {response.status_code}")
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    logger.info(f"Google Gemini API测试成功，使用模型: {test_model}")
-                    
-                    success_message = f'Google Gemini API连接成功，使用模型: {test_model}'
-                    if test_model != model:
-                        success_message += f' (原配置模型 {model} 不可用，已自动切换)'
-                    
-                    return {
-                        'success': True,
-                        'message': success_message,
-                        'response_data': {
-                            'model': test_model,
-                            'original_model': model,
-                            'candidates_count': len(result.get('candidates', []))
-                        },
-                        'provider': 'google',
-                        'model': test_model,
-                        'timestamp': datetime.now().isoformat()
-                    }
-                else:
-                    error_text = response.text
-                    logger.error(f"Google API请求失败 (模型: {test_model}): {response.status_code}")
-                    logger.error(f"错误响应: {error_text}")
-                    
-                    last_error = {
-                        'status_code': response.status_code,
-                        'error_text': error_text,
-                        'model': test_model,
-                        'url': url
-                    }
-                    
-                    # 如果是404错误（模型不存在），尝试下一个模型
-                    if response.status_code == 404:
-                        logger.info(f"模型 {test_model} 不存在，尝试下一个模型")
-                        continue
-                    
-                    # 如果是其他错误，也尝试下一个模型（除非是最后一个）
-                    if test_model != unique_models[-1]:
-                        logger.info(f"模型 {test_model} 失败，尝试下一个模型")
-                        continue
-                        
-            except requests.exceptions.Timeout:
-                logger.error(f"Google API请求超时 (模型: {test_model})")
-                last_error = {
-                    'error': f'请求超时（30秒） - 模型: {test_model}',
-                    'model': test_model
-                }
-                if test_model != unique_models[-1]:
-                    continue
-                    
-            except requests.exceptions.ConnectionError as e:
-                logger.error(f"Google API连接错误 (模型: {test_model}): {e}")
-                last_error = {
-                    'error': f'连接失败 - 模型: {test_model}: {str(e)}',
-                    'model': test_model
-                }
-                if test_model != unique_models[-1]:
-                    continue
-        
-        # 所有模型都失败了，返回详细错误信息
-        if last_error:
-            if 'status_code' in last_error:
-                # 提供更具体的错误信息
-                status_code = last_error['status_code']
-                error_text = last_error['error_text']
-                
-                if status_code == 400:
-                    error_msg = f"请求格式错误 (HTTP 400)。常见原因：\n"
-                    error_msg += f"• 模型名称不正确，已测试的模型: {', '.join(unique_models)}\n"
-                    error_msg += f"• 建议使用稳定版本: gemini-pro 或 gemini-1.5-pro\n"
-                    error_msg += f"• 检查API密钥是否有访问该模型的权限"
-                elif status_code == 401:
-                    error_msg = f"API密钥无效 (HTTP 401)，请检查密钥是否正确"
-                elif status_code == 403:
-                    error_msg = f"访问被禁止 (HTTP 403)，请检查API密钥权限和模型访问权限"
-                elif status_code == 404:
-                    error_msg = f"所有尝试的模型都不存在 (HTTP 404): {', '.join(unique_models)}"
-                elif status_code == 429:
-                    error_msg = f"请求过于频繁 (HTTP 429)，请稍后重试"
-                else:
-                    error_msg = f"API调用失败 (HTTP {status_code}): {error_text}"
-                
-                return {
-                    'success': False,
-                    'error': error_msg,
-                    'provider': 'google',
-                    'model': model,
-                    'timestamp': datetime.now().isoformat(),
-                    'debug_info': {
-                        'tried_models': unique_models,
-                        'last_error': last_error
-                    }
-                }
-            else:
-                return {
-                    'success': False,
-                    'error': last_error.get('error', 'Unknown error'),
-                    'provider': 'google',
-                    'model': model,
-                    'timestamp': datetime.now().isoformat(),
-                    'debug_info': {
-                        'tried_models': unique_models,
-                        'last_error': last_error
-                    }
-                }
-        
-        # 理论上不应该到达这里
+    """测试Google Gemini API连通性并获取可用模型列表"""
+    if not api_key:
         return {
             'success': False,
-            'error': 'Unknown connectivity test failure',
+            'error': 'Google API密钥未提供',
             'provider': 'google',
             'model': model,
             'timestamp': datetime.now().isoformat()
         }
-    
+
+    # 配置Gemini SDK
+    try:
+        genai.configure(api_key=api_key)
     except Exception as e:
-        logger.error(f"Google API连通性测试异常: {e}", exc_info=True)
+        logger.error(f"Gemini SDK配置失败 (genai.configure): {e}")
         return {
             'success': False,
-            'error': f'连通性测试异常: {str(e)}',
+            'error': f'Gemini SDK配置API密钥失败: {str(e)}',
             'provider': 'google',
             'model': model,
             'timestamp': datetime.now().isoformat()
+        }
+
+    # 处理代理设置 (与ai_analysis_service.py中的逻辑一致)
+    original_http_proxy = os.environ.get('HTTP_PROXY')
+    original_https_proxy = os.environ.get('HTTPS_PROXY')
+    proxy_configured_for_sdk = False
+
+    if proxies and proxies.get('https'):
+        os.environ['HTTPS_PROXY'] = proxies['https']
+        os.environ['HTTP_PROXY'] = proxies.get('http', proxies['https'])
+        logger.info(f"为Gemini SDK连通性测试设置代理: {proxies['https']}")
+        proxy_configured_for_sdk = True
+    elif proxies:
+        logger.warning("代理已提供但缺少 'https' 键，Gemini SDK连通性测试代理可能未正确设置")
+
+    # 定义测试模型列表 (与ai_analysis_service.py中的逻辑一致)
+    # 优先使用用户配置的模型，然后是回退模型
+    default_model = "gemini-pro" # 默认测试模型
+    configured_model_name = default_model
+
+    if user_config and user_config.get('ai_configurations'):
+        ai_configurations = user_config['ai_configurations']
+        google_config = None
+        for provider_id, config_data in ai_configurations.items():
+            if provider_id.lower() in ['google', 'gemini'] and config_data.get('enabled'):
+                google_config = config_data
+                break
+        if google_config:
+            model_from_config = google_config.get('model_name') or google_config.get('model_id')
+            if model_from_config:
+                configured_model_name = model_from_config.lower().replace(' ', '-')
+                logger.info(f"连通性测试将优先尝试用户配置模型: {configured_model_name}")
+    
+    # 定义回退模型配置（移除已弃用的预览版模型，优先稳定版本）
+    fallback_models = [
+        configured_model_name, # 用户配置的模型或默认模型
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+        "gemini-pro",
+        "gemini-1.5-pro-latest",
+    ]
+    unique_models_to_test = []
+    for m in fallback_models:
+        if m not in unique_models_to_test:
+            unique_models_to_test.append(m)
+
+    test_prompt = "你好，请做个简单的自我介绍。"
+    available_models_details = []
+    first_successful_model = None
+    connection_successful = False
+    last_error_message = "所有尝试的Gemini模型均连接失败或不可用。"
+
+    for model_name_to_test in unique_models_to_test:
+        logger.info(f"尝试通过SDK连接Gemini模型: {model_name_to_test}")
+        try:
+            model_sdk = genai.GenerativeModel(model_name=model_name_to_test)
+            
+            # 使用非常短的超时（如果SDK支持的话），或依赖SDK默认的快速失败机制
+            # Python SDK的 `generate_content` 不直接接受timeout参数
+            # 超时主要由底层的HTTP请求库控制，或者通过 genai.configure(transport=...) 自定义
+            # 这里我们依赖SDK的默认行为，对于连通性测试，快速响应很重要
+            response_sdk = model_sdk.generate_content(contents=test_prompt)
+
+            if response_sdk and response_sdk.text:
+                logger.info(f"Gemini SDK模型 {model_name_to_test} 连接成功并收到回复。")
+                if not connection_successful: # 记录第一个成功的模型和消息
+                    connection_successful = True
+                    first_successful_model = model_name_to_test
+                    last_error_message = f"通过模型 {model_name_to_test} 成功连接到Gemini API。"
+                
+                available_models_details.append({
+                    "id": model_name_to_test,
+                    "name": model_name_to_test,
+                    "status": "available",
+                    "message": "连接成功"
+                })
+            else:
+                # SDK未能返回有效文本
+                error_detail = "API未返回有效文本。"
+                if response_sdk.prompt_feedback and response_sdk.prompt_feedback.block_reason:
+                    error_detail = f"内容被阻止: {response_sdk.prompt_feedback.block_reason_message}"
+                elif not response_sdk.candidates:
+                     error_detail = "API未返回候选内容 (candidates is empty)"
+
+                logger.warning(f"Gemini SDK模型 {model_name_to_test} 连接成功但未能生成有效内容: {error_detail}")
+                available_models_details.append({
+                    "id": model_name_to_test,
+                    "name": model_name_to_test,
+                    "status": "limited",
+                    "message": f"连接成功但响应无效: {error_detail}"
+                })
+                if not connection_successful: # 即使响应无效，也算某种程度的连接
+                    last_error_message = f"模型 {model_name_to_test} 连接成功但响应无效: {error_detail}"
+
+        except Exception as e:
+            error_str = str(e)
+            logger.error(f"Gemini SDK模型 {model_name_to_test} 连接失败: {error_str}")
+            status_message = f"连接失败: {error_str}"
+            
+            if "API key not valid" in error_str or "API_KEY_INVALID" in error_str:
+                status_message = "API密钥无效或未配置。"
+                # API密钥问题是致命的，不需要尝试其他模型
+                last_error_message = status_message
+                available_models_details.append({"id": model_name_to_test, "name": model_name_to_test, "status": "error", "message": status_message})
+                connection_successful = False # 确保标记为失败
+                break # 停止尝试其他模型
+            elif "PermissionDenied" in error_str or "google.api_core.exceptions.PermissionDenied" in error_str:
+                status_message = f"权限不足 (检查API密钥是否有权访问 {model_name_to_test})。"
+            elif "Model not found" in error_str or "NotFound" in error_str:
+                status_message = "模型不存在。"
+            elif "DeadlineExceeded" in error_str or "timeout" in error_str.lower():
+                status_message = "请求超时。"
+            elif "ResourceExhausted" in error_str:
+                status_message = "资源耗尽 (达到API配额)。"
+            else:
+                status_message = f"未知错误: {error_str}"
+            
+            available_models_details.append({"id": model_name_to_test, "name": model_name_to_test, "status": "error", "message": status_message})
+            if not connection_successful: # 更新最后一个错误信息，直到有成功的连接
+                last_error_message = f"模型 {model_name_to_test}: {status_message}"
+    
+    # 清理代理环境变量
+    if proxy_configured_for_sdk:
+        if original_http_proxy is not None:
+            os.environ['HTTP_PROXY'] = original_http_proxy
+        elif 'HTTP_PROXY' in os.environ:
+            del os.environ['HTTP_PROXY']
+        
+        if original_https_proxy is not None:
+            os.environ['HTTPS_PROXY'] = original_https_proxy
+        elif 'HTTPS_PROXY' in os.environ:
+            del os.environ['HTTPS_PROXY']
+        logger.info("已恢复连通性测试的原始代理环境变量设置")
+
+    if connection_successful and first_successful_model:
+        # 如果至少有一个模型连接成功，整体状态视为成功
+        # 可以在这里尝试列出所有可用模型 (genai.list_models())，但这需要额外权限，且可能较慢
+        # 为了快速连通性测试，我们仅依赖于是否能用一个模型成功生成内容
+        logger.info(f"Google Gemini API连通性测试成功 (通过模型: {first_successful_model})。")
+        # 过滤掉完全出错的模型，除非所有模型都出错
+        successful_or_limited_models = [m for m in available_models_details if m["status"] != "error"]
+        if not successful_or_limited_models and available_models_details: # 如果全是error，就返回这些error信息
+            return {
+                'success': False,
+                'error': last_error_message,
+                'provider': 'google',
+                'model': model,
+                'timestamp': datetime.now().isoformat(),
+                'debug_info': {
+                    'tried_models': unique_models_to_test,
+                    'last_error': last_error_message
+                }
+            }
+        return {
+            'success': True,
+            'message': last_error_message,
+            'response_data': {
+                'model': first_successful_model,
+                'original_model': model,
+                'candidates_count': len(successful_or_limited_models)
+            },
+            'provider': 'google',
+            'model': first_successful_model,
+            'timestamp': datetime.now().isoformat(),
+            'debug_info': {
+                'tried_models': unique_models_to_test,
+                'last_error': last_error_message
+            }
+        }
+    else:
+        logger.error(f"Google Gemini API连通性测试失败。最后错误: {last_error_message}")
+        return {
+            'success': False,
+            'error': last_error_message,
+            'provider': 'google',
+            'model': model,
+            'timestamp': datetime.now().isoformat(),
+            'debug_info': {
+                'tried_models': unique_models_to_test,
+                'last_error': last_error_message
+            }
         }
 
 def _test_anthropic_connectivity(model: str, base_url: str, api_key: str, proxies: Optional[Dict[str, str]]) -> Dict[str, Any]:

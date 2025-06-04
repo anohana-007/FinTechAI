@@ -7,3 +7,5 @@ requests
 werkzeug
 cryptography
 flask-login 
+akshare
+google-generativeai 
